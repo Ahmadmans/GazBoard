@@ -11014,18 +11014,20 @@ module.exports.run = async (win, app) => {
     `with a note: ${greet.withNote ? 'still drawn' : 'gone'}; after clearing: ${greet.afterClear ? 'back' : 'missing'}`);
   /*
    * A share, not an exact zero, so display scaling and graphics hardware do
-   * not matter. The bug this guards against is enormous - text painted over
-   * its own last copy darkened the area by 12.8% in ten moves - while two
-   * honest paints of the same picture can differ by a few thousandths of a
-   * percent. One hundredth of a percent sits a thousand times below the bug
-   * and well above the noise.
+   * not matter. The bug this guards against is enormous: text painted over
+   * its own last copy changed the area by 9.7% to 12.8% in ten moves. Two
+   * honest paints of the same picture differ by a shimmer - measured at
+   * 0.002% on Windows at 125% and 0.013% on a macOS build machine, in either
+   * direction. So the limit is 1%: ten times under the bug, and seventy-five
+   * times over the worst shimmer seen, rather than a hair's breadth over it.
+   * (It started at 0.01%, and the Mac cleared that by a hair and failed.)
    */
   const darkShare = greet.inkPixels ? Math.abs(greet.darkenedBy) / greet.inkPixels : 1;
   check('the eraser passing over an empty board does not darken it',
-    darkShare < 0.0001,
-    `darkened by ${(darkShare * 100).toFixed(4)}% (${greet.darkenedBy} of ${greet.inkPixels}) across ten eraser-sized ` +
-    `repaints at ${greet.dpr}x scaling — allowed under 0.01%; faint text painted over its own last copy ` +
-    `darkens by around 13%`);
+    darkShare < 0.01,
+    `changed by ${(darkShare * 100).toFixed(4)}% (${greet.darkenedBy} of ${greet.inkPixels}) across ten eraser-sized ` +
+    `repaints at ${greet.dpr}x scaling — allowed under 1%; faint text painted over its own last copy ` +
+    `changes by around 10%`);
   check('it never reaches an export',
     greet.exportUntouched === true,
     `export with the greeting on matches one with it off: ${greet.exportUntouched}`);
