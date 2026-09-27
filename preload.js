@@ -101,7 +101,9 @@ contextBridge.exposeInMainWorld('board', {
   info: () => ipcRenderer.invoke('app:info'),
   clipboardSignature,
   clipboardRead,
-  ...(process.argv.includes('--smoke') ? { clipboardWriteForTests } : {}),
+  // The suite is written against the English wording, so a smoke run is in
+  // English whatever language the machine it runs on is set to.
+  ...(process.argv.includes('--smoke') ? { clipboardWriteForTests, smoke: true } : {}),
 
   readFile: (p) => ipcRenderer.invoke('fs:readFile', p),
   // On the desktop the path names the file already; the web build has to work
@@ -178,6 +180,9 @@ contextBridge.exposeInMainWorld('board', {
   exportPdf: (payload) => ipcRenderer.invoke('export:pdf', payload),
 
   onMenu: (cb) => ipcRenderer.on('menu:command', (_e, id) => cb(id)),
+  // The native menu bar belongs to the main process, so it is told which
+  // language to rebuild itself in.
+  setLanguage: (code) => ipcRenderer.send('app:language', code),
   onOpenFile: (cb) => ipcRenderer.on('board:open', (_e, data) => cb(data)),
   onWindowResized: (cb) => ipcRenderer.on('window:resized', () => cb()),
   onFlush: (cb) => ipcRenderer.on('app:flush', async () => { await cb(); ipcRenderer.send('app:flushed'); }),

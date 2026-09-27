@@ -20,6 +20,8 @@
  * this still works on a plane like the rest of the app.
  */
 
+import { t } from '../i18n.js';
+
 /** [character, name, extra search words] */
 const CATALOGUE = [
   // --- marks, grades, status -------------------------------------------
@@ -286,9 +288,9 @@ const CATALOGUE = [
  * by the first character of each group.
  */
 const GROUP_STARTS = [
-  ['Marks', '✅'], ['Arrows', '➡️'], ['Faces', '🙂'], ['Hands', '👍'],
-  ['Study', '💡'], ['Things', '💻'], ['Money', '💰'], ['Nature', '🌞'],
-  ['Places', '🚀'], ['Shapes', '🔴']
+  [t('Marks'), '✅'], [t('Arrows'), '➡️'], [t('Faces'), '🙂'], [t('Hands'), '👍'],
+  [t('Study'), '💡'], [t('Things'), '💻'], [t('Money'), '💰'], [t('Nature'), '🌞'],
+  [t('Places'), '🚀'], [t('Shapes'), '🔴']
 ];
 
 export const EMOJI = CATALOGUE.map(([ch, name, keywords]) => ({ ch, name, keywords }));

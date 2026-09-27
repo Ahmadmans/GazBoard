@@ -867,7 +867,9 @@ async function run(win, app) {
    * no copy of ours.
    */
   check('the comic face is the Comic Sans look, bundled first and the real one right behind',
-    /^'GazBoard Comic Neue','Comic Sans MS'/.test(faces.handFace), faces.handFace);
+    // the bundled Bangla and Arabic sit between: they only cover their own
+    // scripts, so they change nothing for Latin text
+    /^'GazBoard Comic Neue',('GazBoard Noto [A-Za-z ]+',)*'Comic Sans MS'/.test(faces.handFace), faces.handFace);
   check('the editor types in the face the text will commit to, not just for handwriting',
     faces.editorFace.replace(/"/g, "'").includes('Georgia'), faces.editorFace);
 
@@ -2691,10 +2693,12 @@ async function run(win, app) {
     it.onDown(mk(500, 300, 1));
     sf.draw();
     let eraseWorst = 0, eraseBest = Infinity, banded = 0, full = 0;
+    const eraseTimes = [];
     for (let i = 1; i <= 12; i++) {
       it.onMove(mk(500 + i * 11, 300 + i * 3, 1));
       if (sf._bandOnly && sf._band && sf._painted) banded++; else full++;
       const t = time(() => sf.draw());
+      eraseTimes.push(t);
       if (t > eraseWorst) eraseWorst = t;
       if (t < eraseBest) eraseBest = t;
     }
@@ -2704,7 +2708,9 @@ async function run(win, app) {
     a.penSeenThisSession = false; a.setTool('select');
     sf.cam.z = 1; sf.cam.x = 0; sf.cam.y = 0;
     it.action = null; it.pointers.clear();
-    return { inkFirst, inkAfter, eraseBest, eraseWorst, banded, full };
+    const sorted = eraseTimes.slice().sort((p, q) => p - q);
+    const eraseMedian = sorted[Math.floor(sorted.length / 2)];
+    return { inkFirst, inkAfter, eraseBest, eraseWorst, eraseMedian, banded, full };
   `);
   /*
    * These two are measured, and only the SECOND is asserted hard.
@@ -2739,9 +2745,17 @@ async function run(win, app) {
    * worth catching. The ceiling below is left deliberately loose - it is there
    * to trip on the 88ms-a-move behaviour this replaced, nothing finer.
    */
+  /*
+   * The typical move, not the single worst one. One move out of twelve can
+   * land on a garbage collection or a busy moment on the machine - a Windows
+   * PC measured 2.8ms at best and one 63ms spike, with all twelve moves
+   * correctly banded. The behaviour this guards against is slow on EVERY
+   * move, so the middle of the twelve catches it and a lone spike does not.
+   */
   check('and erasing on that board costs the band under the eraser, not the board',
-    bothTools.banded === 12 && bothTools.full === 0 && bothTools.eraseWorst < 60,
-    `${bothTools.eraseBest.toFixed(1)}-${bothTools.eraseWorst.toFixed(1)} ms a move, `
+    bothTools.banded === 12 && bothTools.full === 0 && bothTools.eraseMedian < 30,
+    `typical move ${bothTools.eraseMedian.toFixed(1)} ms (allowed under 30; the old whole-board path cost 88), `
+      + `best ${bothTools.eraseBest.toFixed(1)}, worst ${bothTools.eraseWorst.toFixed(1)}; `
       + `${bothTools.banded} banded / ${bothTools.full} full`);
 
   /*
@@ -10753,16 +10767,17 @@ module.exports.run = async (win, app) => {
       try { return fsSync.statSync(path.join(SRC, rel)).size < 1024; } catch { return true; }
     });
     check('every bundled board font the stylesheet names is really there',
-      declared.length === 18 && missing.length === 0,
-      `${declared.length} declared (wanted 18: five faces, two weights, latin and accented latin), ` +
+      declared.length === 22 && missing.length === 0,
+      `${declared.length} declared (wanted 22: five faces in two weights, latin and accented latin, ` +
+      `plus Bangla and Arabic in two weights), ` +
       `missing or empty: ${missing.join(', ') || 'none'}`);
-    const families = [...new Set(declared.map((rel) => rel.match(/board\/(.+?)-latin/)[1]))];
+    const families = [...new Set(declared.map((rel) => (rel.match(/board\/(.+)-(?:latin(?:-ext)?|bengali|arabic)-\d/) || [, rel])[1]))];
     const unlicensed = families.filter((f) => {
       try { return !/SIL Open Font License/.test(fsSync.readFileSync(path.join(SRC, 'assets', 'fonts', 'board', `LICENSE-${f}.txt`), 'utf8')); }
       catch { return true; }
     });
     check('and each one ships with its licence',
-      families.length === 5 && unlicensed.length === 0,
+      families.length === 7 && unlicensed.length === 0,
       `${families.length} families (${families.join(', ')}); without an OFL licence beside them: ` +
       `${unlicensed.join(', ') || 'none'} — the licence has to travel with the font`);
     const notCached = declared.filter((rel) => !sw.includes(`'./${rel}'`));
@@ -11262,6 +11277,36 @@ module.exports.run = async (win, app) => {
   check('a board saved mid-lesson opens with the same answers showing',
     cover.roundTrip, `round trip kept which covers were lifted: ${cover.roundTrip}`);
 
+  /* ---- a cover looks the same whatever zoom it was made at ---- */
+  const coverZoom = await js(`
+    const a = window.app, sf = a.surface;
+    const { curtainLabelSize } = await import('app://board/js/core/render.js');
+    const ctx = document.createElement('canvas').getContext('2d');
+    const r = {};
+    const made = (z) => {
+      a.newBoard(true); a.textEditor.cancel();
+      sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.cam.z = z;
+      const c = a.addCurtain();
+      const size = curtainLabelSize(ctx, c);
+      ctx.font = '600 ' + size + 'px sans-serif';
+      return { onScreen: +(size * z).toFixed(2), cardOnScreen: +(c.h * z).toFixed(1),
+               fits: ctx.measureText('Tap to reveal').width <= Math.abs(c.w) };
+    };
+    r.at100 = made(1);
+    r.at5 = made(0.05);
+    r.at2 = made(0.02);
+    r.at400 = made(4);
+    a.newBoard(true);
+    return r;
+  `);
+  check('a cover made zoomed right out has a label as readable as one made at 100%',
+    [coverZoom.at5, coverZoom.at2, coverZoom.at400].every((m) =>
+      Math.abs(m.onScreen - coverZoom.at100.onScreen) / coverZoom.at100.onScreen < 0.02 && m.fits) &&
+    coverZoom.at100.onScreen >= 20,
+    `label on screen when the cover was made at 100%: ${coverZoom.at100.onScreen}px, at 5%: ${coverZoom.at5.onScreen}px, ` +
+    `at 2%: ${coverZoom.at2.onScreen}px, at 400%: ${coverZoom.at400.onScreen}px — all should match; ` +
+    `fits across the card: ${[coverZoom.at100, coverZoom.at5, coverZoom.at2, coverZoom.at400].map((m) => m.fits).join(',')}`);
+
   /* ---- writing ON a cover belongs to the cover; writing near it does not ---- */
   const onCover = await js(`
     const a = window.app, it = a.interaction, sf = a.surface, s = a.settings;
@@ -11700,6 +11745,79 @@ module.exports.run = async (win, app) => {
   check('one more minute after time is up starts a fresh minute; closing stops it',
     timer.moreAfterDone && timer.closed,
     `fresh minute: ${timer.moreAfterDone}, closed and stopped ticking: ${timer.closed}`);
+  /*
+   * The same clock, driven with REAL mouse presses and key strokes from
+   * outside the page, not element.click(). A synthetic click goes straight
+   * to the button it is called on; a real one goes wherever the browser
+   * decides - and the first build of this clock captured the pointer on the
+   * card, so every real click landed on the card instead of the button. The
+   * checks above all passed while no button in the clock could be pressed.
+   */
+  {
+    const where = async (sel) => js(`
+      const b = document.querySelector('${sel}');
+      if (!b) return null;
+      const q = b.getBoundingClientRect();
+      return { x: Math.round(q.left + q.width / 2), y: Math.round(q.top + q.height / 2) };
+    `);
+    const press = async (sel) => {
+      const p = await where(sel);
+      if (!p) return false;
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y });
+      win.webContents.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 });
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: 1 });
+      await sleep(120);
+      return true;
+    };
+    const type = async (text) => {
+      for (const ch of text) win.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+      await sleep(80);
+    };
+    const state = () => js(`
+      const t = window.app.timer;
+      return { state: t.state, picking: t.picking, total: t.total, left: Math.round(t.remaining() / 1000),
+               x: Math.round(t.box.x), y: Math.round(t.box.y), digits: document.querySelector('#classTimer .ct-digits')?.textContent || null };
+    `);
+    const log = [];
+    const step = async (label, fn) => { const ok = await fn(); const s = await state(); log.push(`${label}${ok === false ? ' (NOT FOUND)' : ''} → ${s.state}${s.picking ? '+list' : ''} ${s.left}s`); return s; };
+
+    await js(`window.app.timer.close(); window.app.textEditor.cancel(); window.app.command('timer.open');`);
+    await sleep(150);
+    const preset = await step('press 5 min', () => press('#classTimer .ct-preset[data-minutes="5"]'));
+    const paused = await step('press pause', () => press('#classTimer .ct-pause'));
+    const resumed = await step('press carry on', () => press('#classTimer .ct-resume'));
+    const more = await step('press +1', () => press('#classTimer .ct-more'));
+    const listing = await step('press choose another', () => press('#classTimer .ct-reset'));
+    await step('press the box', () => press('#classTimer .ct-input'));
+    await type('30s');
+    const typed = await step('type 30s and press Start', () => press('#classTimer .ct-go'));
+    await step('press choose another', () => press('#classTimer .ct-reset'));
+    const kept = await step('press keep this one', () => press('#classTimer .ct-keep'));
+    // a real drag by the digits: moves the clock and does not pause it
+    const d = (await where('#classTimer .ct-digits')) || { x: 0, y: 0, missing: true };
+    const before = await state();
+    if (d.missing) log.push('no running clock to drag');
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: d.x, y: d.y });
+    win.webContents.sendInputEvent({ type: 'mouseDown', x: d.x, y: d.y, button: 'left', clickCount: 1 });
+    for (let i = 1; i <= 8; i++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: d.x + i * 15, y: d.y + i * 5, button: 'left' }); await sleep(16); }
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: d.x + 120, y: d.y + 40, button: 'left', clickCount: 1 });
+    await sleep(150);
+    const dragged = await state();
+    log.push(`drag by the digits → moved ${dragged.x - before.x},${dragged.y - before.y}, ${dragged.state}`);
+    const closed = await step('press close', () => press('#classTimer .ct-close'));
+    await js(`const t = window.app.timer; t.box = { x: 16, y: 14, scale: 1 }; window.app.settings.timerBox = { ...t.box };`);
+
+    check('the clock’s buttons answer a real mouse, not just a scripted click',
+      preset.state === 'running' && paused.state === 'paused' && resumed.state === 'running' &&
+      more.left > 300 && listing.picking && listing.state === 'running' && closed.state === 'closed',
+      log.join('; '));
+    check('typing a time and pressing Start starts it',
+      typed.state === 'running' && !typed.picking && typed.total === 30000 && kept.state === 'running' && !kept.picking,
+      log.join('; '));
+    check('a real drag moves the clock and leaves it running',
+      dragged.x - before.x >= 100 && dragged.state === 'running', log.join('; '));
+  }
+
   {
     const sw = await fs.readFile(path.join(__dirname, '..', 'src', 'sw.js'), 'utf8');
     const missing = ['./js/ui/present.js', './js/ui/timer.js'].filter((f) => !sw.includes(`'${f}'`));
@@ -11787,6 +11905,250 @@ module.exports.run = async (win, app) => {
       list.filter((c) => /^[C-Z]:/i.test(c)).length === 24 * 3,
       `${list.filter((c) => /^[C-Z]:/i.test(c)).length} drive path(s), wanted ${24 * 3} (24 letters x 3 shapes)`);
   }
+
+  /* ---- the app in other languages ---- */
+  {
+    const { extract } = require('../scripts/i18n-extract.js');
+    const { checkLanguage } = require('../scripts/i18n-check.js');
+    const fsSync = require('node:fs');
+    const { strings, problems } = extract();
+    check('every sentence the app shows can be found for translating',
+      strings.length > 800 && problems.length === 0,
+      `${strings.length} sentences found; t() calls with nothing readable to translate: ` +
+      `${problems.length ? problems.slice(0, 5).join(' | ') : 'none'}`);
+    const codes = ['bn', 'zh-Hans', 'zh-Hant', 'ar', 'es', 'pt-BR'];
+    for (const code of codes) {
+      const r = checkLanguage(code, strings);
+      const miss = Array.isArray(r.missing) ? r.missing : [];
+      const extra = Array.isArray(r.extra) ? r.extra : [];
+      check(`${code}: every sentence translated, with its placeholders and markup intact`,
+        miss.length === 0 && extra.length === 0 && r.problems.length === 0,
+        `${strings.length - miss.length}/${strings.length} translated; missing: ${miss.slice(0, 3).map((s) => JSON.stringify(s)).join(', ') || 'none'}; ` +
+        `left over: ${extra.slice(0, 3).map((s) => JSON.stringify(s)).join(', ') || 'none'}; ` +
+        `problems: ${r.problems.slice(0, 3).join(' | ') || 'none'}`);
+    }
+    const sw = fsSync.readFileSync(path.join(__dirname, '..', 'src', 'sw.js'), 'utf8');
+    const uncached = [...codes.map((c) => `./locales/${c}.json`), './js/i18n.js'].filter((f) => !sw.includes(`'${f}'`));
+    check('the web version keeps every language for offline use',
+      uncached.length === 0, `not precached: ${uncached.join(', ') || 'none'}`);
+    const bn = JSON.parse(fsSync.readFileSync(path.join(__dirname, '..', 'src', 'locales', 'bn.json'), 'utf8'));
+    check('Bangla keeps the words Bangladeshi teachers actually use',
+      bn['Pen'] === undefined ? /পেন/.test(bn['Black pen'] || bn['Pen (last colour used)'] || '') : bn['Pen'] === 'পেন',
+      `pen is written: ${bn['Pen'] || bn['Black pen'] || bn['Pen (last colour used)']} — পেন, never কলম`);
+  }
+
+  const lang = await js(`
+    const i = await import('app://board/js/i18n.js');
+    const r = {};
+    r.detect = {
+      tw: i.detectLanguage(['zh-TW']), hk: i.detectLanguage(['zh-HK']), cn: i.detectLanguage(['zh-CN']),
+      hant: i.detectLanguage(['zh-Hant-SG']), pt: i.detectLanguage(['pt-PT']), bn: i.detectLanguage(['bn-BD']),
+      firstKnown: i.detectLanguage(['fr-FR', 'ar-EG']), none: i.detectLanguage(['fr-FR', 'de'])
+    };
+    r.smokeIsEnglish = i.resolveLanguage('auto') === 'en' && i.currentLanguage() === 'en';
+    r.englishIsKey = i.t('Export as PNG…') === 'Export as PNG…' && i.t('Page {n} of {total}', { n: 2, total: 5 }) === 'Page 2 of 5';
+    await i.setLanguage('bn');
+    r.bnSettings = i.t('Settings');
+    r.bnFilled = i.t('Page {n} of {total}', { n: 2, total: 5 });
+    r.bnMissingFallsBack = i.t('A sentence no file has') === 'A sentence no file has';
+    r.bnHtmlLang = document.documentElement.lang;
+    await i.setLanguage('ar');
+    r.arDir = document.documentElement.dir;
+    await i.setLanguage('en');
+    r.backDir = document.documentElement.dir;
+    // the bundled Bangla face really loads and really draws
+    const got = await document.fonts.load('16px "GazBoard Noto Bengali"', '\\u0995\\u0996\\u0997');
+    r.bnFace = got.length;
+    const c = document.createElement('canvas').getContext('2d');
+    const word = '\\u0995\\u09BE\\u09B2\\u09CB \\u09AA\\u09C7\\u09A8';
+    c.font = '32px "GazBoard Noto Bengali", monospace'; const ours = c.measureText(word).width;
+    c.font = '32px monospace'; const fallback = c.measureText(word).width;
+    r.bnDrawnWithOurs = Math.abs(ours - fallback) > 0.5;
+    r.bnWidths = [Math.round(ours), Math.round(fallback)];
+    return r;
+  `);
+  check('the machine’s language is picked up, Chinese by region',
+    lang.detect.tw === 'zh-Hant' && lang.detect.hk === 'zh-Hant' && lang.detect.hant === 'zh-Hant' &&
+    lang.detect.cn === 'zh-Hans' && lang.detect.pt === 'pt-BR' && lang.detect.bn === 'bn' &&
+    lang.detect.firstKnown === 'ar' && lang.detect.none === 'en',
+    JSON.stringify(lang.detect));
+  check('the suite itself always runs in English, and English is the key',
+    lang.smokeIsEnglish && lang.englishIsKey, `smoke in English: ${lang.smokeIsEnglish}, t() returns the English: ${lang.englishIsKey}`);
+  check('switching language translates, fills placeholders, and falls back to English for anything missing',
+    lang.bnSettings === 'সেটিংস' && /2/.test(lang.bnFilled) && /5/.test(lang.bnFilled) && lang.bnFilled !== 'Page 2 of 5' &&
+    lang.bnMissingFallsBack && lang.bnHtmlLang === 'bn',
+    `Settings → ${lang.bnSettings}; "Page 2 of 5" → ${lang.bnFilled}; missing falls back: ${lang.bnMissingFallsBack}; lang=${lang.bnHtmlLang}`);
+  check('Arabic turns the page right to left, and English turns it back',
+    lang.arDir === 'rtl' && lang.backDir === 'ltr', `Arabic: ${lang.arDir}, back in English: ${lang.backDir}`);
+  check('Bangla comes with the app, so it looks right on a machine without a Bangla font',
+    lang.bnFace > 0 && lang.bnDrawnWithOurs,
+    `faces loaded for Bangla: ${lang.bnFace}; drawn with ours rather than a stand-in: ${lang.bnDrawnWithOurs} (widths ${lang.bnWidths.join(' vs ')})`);
+
+  /* ---- the optional Chinese font: fetched once, checked, kept, removable ---- */
+  const fontPack = await js(`
+    const a = window.app;
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const fp = await import('app://board/js/fontpack.js');
+    const r = {};
+    // The download itself is exercised offline: the bundled Bangla face plays
+    // the part of the Chinese file, served from the app instead of the web.
+    const stand = 'noto-sans-bengali-bengali-400-normal.woff2';
+    const buf = await (await fetch('app://board/assets/fonts/board/' + stand)).arrayBuffer();
+    fp.PACKS.zz = { id: 'zz', lang: 'xx', family: 'GazBoard Test Pack', file: stand, bytes: buf.byteLength, sha256: await fp.sha256(buf) };
+    await fp.remove('zz');
+    const inDoc = (fam) => [...document.fonts].some((f) => f.family.replace(/["']/g, '') === fam && f.status === 'loaded');
+    const dead = () => 'app://board/assets/fonts/board/not-there.woff2';
+    const good = (f) => 'app://board/assets/fonts/board/' + f;
+    const seen = [];
+    let progress = 0;
+    const got = await fp.download('zz', { sources: [dead, good], fetchImpl: (u, o) => { seen.push(u); return fetch(u, o); },
+      onProgress: (g) => { progress = Math.max(progress, g); } });
+    r.ok = got.ok; r.triedBoth = seen.length === 2; r.progressToEnd = progress === buf.byteLength;
+    r.installed = await fp.isInstalled('zz'); r.inUse = fp.isActive('zz') && inDoc('GazBoard Test Pack');
+
+    fp.PACKS.zy = { ...fp.PACKS.zz, id: 'zy', family: 'GazBoard Test Wrong', sha256: '0'.repeat(64) };
+    const wrong = await fp.download('zy', { sources: [good] });
+    r.wrongRefused = !wrong.ok && !(await fp.isInstalled('zy')) && !inDoc('GazBoard Test Wrong');
+    r.wrongSays = wrong.error;
+
+    await fp.remove('zz');
+    const fromFile = await fp.installFromFile('zz', new File([buf], stand));
+    r.fileTaken = fromFile.ok && await fp.isInstalled('zz');
+    const junk = await fp.installFromFile('zz', new File([new Uint8Array(4096)], 'font.woff2'));
+    r.junkRefused = !junk.ok; r.junkSays = junk.error;
+
+    await fp.remove('zz');
+    r.removed = !(await fp.isInstalled('zz')) && !fp.isActive('zz') && !inDoc('GazBoard Test Pack');
+
+    // starting up never reaches for the network by itself
+    const realFetch = window.fetch; let calls = 0;
+    window.fetch = (...x) => { calls++; return realFetch(...x); };
+    await fp.loadInstalled();
+    window.fetch = realFetch;
+    r.startupFetches = calls;
+    delete fp.PACKS.zz; delete fp.PACKS.zy;
+
+    r.packs = Object.values(fp.PACKS).map((p) => ({ id: p.id, lang: p.lang, file: p.file, bytes: p.bytes, sha: p.sha256 }));
+    r.sources = fp.SOURCES.map((s) => s('F'));
+    r.packFor = { hans: fp.packFor('zh-Hans')?.id, hant: fp.packFor('zh-Hant')?.id, bn: fp.packFor('bn') };
+
+    // the Settings row: offered in Chinese, absent in English
+    const i = await import('app://board/js/i18n.js');
+    await i.setLanguage('zh-Hans');
+    if (a.panels.open) a.panels.close();
+    a.panels.settings();
+    // the row asks the device whether the font is already there before it
+    // draws its buttons, and that answer can take a moment on a busy machine
+    const until = async (sel) => {
+      for (let n = 0; n < 60; n++) { if (document.querySelector(sel)) return true; await sleep(50); }
+      return false;
+    };
+    r.rowWaited = await until('#panelBody .fp-download');
+    r.rowInChinese = document.querySelector('#panelBody .fp-download')?.textContent || null;
+    r.rowHtml = (document.querySelector('#panelBody .fontpack')?.outerHTML || 'no .fontpack at all').slice(0, 160);
+    r.addFileInChinese = !!document.querySelector('#panelBody .fp-file');
+    a.panels.close();
+    await i.setLanguage('en');
+    a.panels.settings(); await sleep(400);
+    r.rowInEnglish = !!document.querySelector('#panelBody .fontpack');
+    a.panels.close();
+    const { FONTS } = await import('app://board/js/ui/palettes.js');
+    r.stacksCarryIt = FONTS.every((f) => f.stack.includes("'GazBoard Noto Sans SC'") && f.stack.includes("'GazBoard Noto Sans TC'"));
+    return r;
+  `);
+  check('the Chinese font downloads, falls back to the second source, and is put to use',
+    fontPack.ok && fontPack.triedBoth && fontPack.progressToEnd && fontPack.installed && fontPack.inUse,
+    `downloaded: ${fontPack.ok}, tried the second source after the first failed: ${fontPack.triedBoth}, ` +
+    `progress reached the end: ${fontPack.progressToEnd}, kept: ${fontPack.installed}, drawing with it: ${fontPack.inUse}`);
+  check('a file that is not exactly the right one is refused, downloaded or added by hand',
+    fontPack.wrongRefused && fontPack.junkRefused && fontPack.fileTaken,
+    `wrong download refused: ${fontPack.wrongRefused} ("${fontPack.wrongSays}"); junk file refused: ` +
+    `${fontPack.junkRefused} ("${fontPack.junkSays}"); the right file added by hand: ${fontPack.fileTaken}`);
+  check('it can be removed again, and starting the app never downloads anything by itself',
+    fontPack.removed && fontPack.startupFetches === 0,
+    `removed cleanly: ${fontPack.removed}; network requests at start-up: ${fontPack.startupFetches}`);
+  check('Settings offers it in Chinese and not in English',
+    !!fontPack.rowInChinese && fontPack.addFileInChinese && !fontPack.rowInEnglish &&
+    fontPack.packFor.hans === 'sc' && fontPack.packFor.hant === 'tc' && fontPack.packFor.bn === null,
+    `in Chinese: "${fontPack.rowInChinese}", add-a-file button: ${fontPack.addFileInChinese} (row: ${fontPack.rowHtml}); ` +
+    `in English: ${fontPack.rowInEnglish ? 'SHOWN' : 'not shown'}; ` +
+    `packs: ${JSON.stringify(fontPack.packFor)}`);
+  check('every board face falls back to the downloaded Chinese font when it is there',
+    fontPack.stacksCarryIt, `all five font stacks name both Chinese faces: ${fontPack.stacksCarryIt}`);
+  {
+    const fsSync = require('node:fs');
+    const crypto = require('node:crypto');
+    const dir = path.join(__dirname, '..', 'fonts');
+    const bad = fontPack.packs.filter((p) => {
+      try {
+        const b = fsSync.readFileSync(path.join(dir, p.file));
+        return b.length !== p.bytes || crypto.createHash('sha256').update(b).digest('hex') !== p.sha;
+      } catch { return true; }
+    });
+    const lic = (() => { try { return fsSync.readFileSync(path.join(dir, 'LICENSE-noto-sans-cjk.txt'), 'utf8'); } catch { return ''; } })();
+    check('the font files the app asks for are the ones in the repo, byte for byte, with their licence',
+      fontPack.packs.length === 2 && bad.length === 0 && /SIL Open Font License/.test(lic),
+      `packs: ${fontPack.packs.map((p) => p.file).join(', ')}; not matching the repo's fonts/ folder: ` +
+      `${bad.map((p) => p.file).join(', ') || 'none'}; OFL licence beside them: ${/SIL Open Font License/.test(lic)}`);
+    const html = fsSync.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+    const csp = (html.match(/connect-src([^;]*);/) || [])[1] || '';
+    const hosts = fontPack.sources.map((u) => new URL(u).origin);
+    const blocked = hosts.filter((o) => !csp.includes(o));
+    check('the page is allowed to reach both download places, and nothing else new',
+      blocked.length === 0 && hosts.length === 2,
+      `sources: ${hosts.join(', ')}; not allowed by the page: ${blocked.join(', ') || 'none'}`);
+  }
+
+  /* the whole app, switched from Settings: the window reloads in the new language */
+  const relaunch = async (code) => {
+    await js(`
+      const s = JSON.parse(localStorage.getItem('gazboard.settings') || '{}');
+      ${code ? `s.language = '${code}';` : 'delete s.language;'}
+      localStorage.setItem('gazboard.settings', JSON.stringify(s));
+    `);
+    await new Promise((res) => { win.webContents.once('did-finish-load', res); win.webContents.reload(); });
+    for (let i = 0; i < 50; i++) {
+      await sleep(100);
+      if (await js(`return !!(window.app && window.app.store);`)) break;
+    }
+    await sleep(400);
+  };
+  const { Menu } = require('electron');
+  const ui = async () => js(`
+    const q = (s) => document.querySelector(s);
+    const zb = q('#zoombar').getBoundingClientRect();
+    return {
+      lang: document.documentElement.lang, dir: document.documentElement.dir,
+      present: q('#btnPresent')?.textContent.trim(),
+      selectTitle: q('#toolbar .tool[data-tool="select"]')?.title,
+      helpTitle: q('#btnHelp')?.title,
+      zoombarLeft: zb.left < window.innerWidth / 2,
+      canvasDir: getComputedStyle(q('#c')).direction,
+      booted: !!(window.app && window.app.store)
+    };
+  `);
+  await relaunch('bn');
+  const bnUi = await ui();
+  const bnMenu = Menu.getApplicationMenu()?.items.map((i) => i.label) || [];
+  await relaunch('ar');
+  const arUi = await ui();
+  await relaunch(null);
+  const enUi = await ui();
+  const enMenu = Menu.getApplicationMenu()?.items.map((i) => i.label) || [];
+  const bnDict = JSON.parse(require('node:fs').readFileSync(path.join(__dirname, '..', 'src', 'locales', 'bn.json'), 'utf8'));
+  check('chosen in Settings, Bangla reaches the toolbar, the top bar and the menu bar',
+    bnUi.booted && bnUi.lang === 'bn' && bnUi.present === bnDict['Present'] &&
+    bnUi.selectTitle === bnDict['Select (V)'] && bnUi.helpTitle === bnDict['Keyboard shortcuts'] &&
+    (process.platform === 'darwin' || bnMenu.includes(bnDict['File'])),
+    `lang ${bnUi.lang}; Present button "${bnUi.present}"; Select tooltip "${bnUi.selectTitle}"; ` +
+    `help tooltip "${bnUi.helpTitle}"; menu bar: ${bnMenu.join(' | ')}`);
+  check('Arabic mirrors the frame but never the board',
+    arUi.booted && arUi.dir === 'rtl' && arUi.zoombarLeft && arUi.canvasDir === 'ltr',
+    `dir ${arUi.dir}; zoom bar on the left: ${arUi.zoombarLeft}; board canvas direction: ${arUi.canvasDir}`);
+  check('and back in English everything is English again',
+    enUi.booted && enUi.lang === 'en' && enUi.dir === 'ltr' && enUi.present === 'Present' && !enUi.zoombarLeft &&
+    (process.platform === 'darwin' || enMenu.includes('File')),
+    `lang ${enUi.lang}, dir ${enUi.dir}, Present button "${enUi.present}", zoom bar on the left: ${enUi.zoombarLeft}, menu: ${enMenu.join(' | ')}`);
 
   /* ---- errors ---- */
   const errs = await js(`return window.__errors || [];`);

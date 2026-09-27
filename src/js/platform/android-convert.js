@@ -1,5 +1,6 @@
 import { createAndroidAdapter } from './android-adapter.js';
 import { pptxToSlides } from '../importers/pptx.js';
+import { t } from '../i18n.js';
 
 const board = createAndroidAdapter();
 const query = new URLSearchParams(location.search);
@@ -45,7 +46,7 @@ try {
     text.textContent = new TextDecoder().decode(buffer);
     doc.appendChild(text);
     root.appendChild(doc);
-  } else throw new Error('Unsupported document type');
+  } else throw new Error(t('Unsupported document type'));
   const style = document.createElement('style');
   style.textContent = `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }`;
   document.head.appendChild(style);
@@ -93,4 +94,4 @@ try {
   window.gazboardConvertPage(0);
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   await board.convertReady({ widthMm, heightMm, pages });
-} catch (e) { await board.convertError({ message: e.message || 'Could not read document' }); }
+} catch (e) { await board.convertError({ message: e.message || t('Could not read document') }); }

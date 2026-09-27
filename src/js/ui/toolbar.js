@@ -9,6 +9,7 @@ import {
 } from './palettes.js';
 import { EMOJI_GROUPS, searchEmoji } from '../core/emoji.js';
 import { inkPaint } from '../core/render.js';
+import { t } from '../i18n.js';
 
 const TOOL_ICON = {
   select: 'select', lasso: 'lasso', pen: 'pen', highlighter: 'highlighter',
@@ -66,17 +67,17 @@ export function initToolbar(app) {
     if (was) openToolPopover(app, b, tool); else closePopover();
   };
 
-  iconTool({ tool: 'select', icon: 'select', key: 'V', title: 'Select (V)', onClick: () => app.setTool('select') });
-  iconTool({ tool: 'lasso', icon: 'lasso', key: 'L', title: 'Lasso select (L)', onClick: () => app.setTool('lasso') });
-  iconTool({ tool: 'pan', icon: 'hand', key: 'G', title: 'Pan the canvas (G) \u2014 drag to move around. Space, the middle mouse button and the scroll wheel do this too',
+  iconTool({ tool: 'select', icon: 'select', key: 'V', title: t('Select (V)'), onClick: () => app.setTool('select') });
+  iconTool({ tool: 'lasso', icon: 'lasso', key: 'L', title: t('Lasso select (L)'), onClick: () => app.setTool('lasso') });
+  iconTool({ tool: 'pan', icon: 'hand', key: 'G', title: t('Pan the canvas (G) \u2014 drag to move around. Space, the middle mouse button and the scroll wheel do this too'),
     onClick: () => app.setTool('pan') });
-  iconTool({ tool: 'laser', icon: 'laser', key: 'X', title: 'Laser pointer (X) \u2014 leaves a trail that fades; nothing is saved',
+  iconTool({ tool: 'laser', icon: 'laser', key: 'X', title: t('Laser pointer (X) \u2014 leaves a trail that fades; nothing is saved'),
     onClick: () => app.setTool('laser') });
   sep();
 
   /* ---- the pen tray ---- */
   for (const pen of PENS) {
-    const b = h('button', { class: 'pen', title: `${pen.label} (${PENS.indexOf(pen) + 1}) \u2014 click again for thickness` });
+    const b = h('button', { class: 'pen', title: t('{pen} ({n}) \u2014 click again for thickness', { pen: pen.label, n: PENS.indexOf(pen) + 1 }) });
     b.dataset.pen = pen.id;
     if (pen.id === 'black') b.dataset.tool = 'pen';       // the canonical pen button
     // every pen wears its own number: 1-6 reach them directly, which is the
@@ -90,25 +91,25 @@ export function initToolbar(app) {
     bar.appendChild(b);
   }
 
-  const hl = h('button', { class: 'pen', title: 'Highlighter (H) \u2014 click again for options' });
+  const hl = h('button', { class: 'pen', title: t('Highlighter (H) \u2014 click again for options') });
   hl.dataset.tool = 'highlighter';
   hl.innerHTML = penIcon(app.settings.highlighterColor, 'none', 'highlighter') + '<span class="kbd">H</span>';
   hl.addEventListener('click', (e) => toggleTool('highlighter')(e, hl));
   bar.appendChild(hl);
 
-  const er = h('button', { class: 'pen', title: 'Eraser (E) \u2014 click again for options' });
+  const er = h('button', { class: 'pen', title: t('Eraser (E) \u2014 click again for options') });
   er.dataset.tool = 'eraser';
   er.innerHTML = penIcon('#f7a8c4', 'none', 'eraser') + '<span class="kbd">E</span>';
   er.addEventListener('click', (e) => toggleTool('eraser')(e, er));
   bar.appendChild(er);
   sep();
 
-  iconTool({ cmd: 'ruler', icon: 'ruler', title: 'Ruler (Ctrl+R)', onClick: () => app.command('ruler') });
-  iconTool({ tool: 'text', icon: 'text', dot: true, key: 'T', title: 'Text (T) \u2014 click again for font and size',
+  iconTool({ cmd: 'ruler', icon: 'ruler', title: t('Ruler (Ctrl+R)'), onClick: () => app.command('ruler') });
+  iconTool({ tool: 'text', icon: 'text', dot: true, key: 'T', title: t('Text (T) \u2014 click again for font and size'),
     onClick: toggleTool('text') });
-  iconTool({ tool: 'note', icon: 'note', dot: true, key: 'N', title: 'Sticky note (N) \u2014 click again for colours',
+  iconTool({ tool: 'note', icon: 'note', dot: true, key: 'N', title: t('Sticky note (N) \u2014 click again for colours'),
     onClick: toggleTool('note') });
-  iconTool({ tool: 'shape', icon: 'shapes', dot: true, key: 'S', title: 'Shapes (S)', onClick: toggleTool('shape') });
+  iconTool({ tool: 'shape', icon: 'shapes', dot: true, key: 'S', title: t('Shapes (S)'), onClick: toggleTool('shape') });
   /*
    * The emoji button always opens the picker.
    *
@@ -123,16 +124,16 @@ export function initToolbar(app) {
    * Pressing it while the picker is open still shuts it, because openPopover
    * treats a second press on the same key as "put that away".
    */
-  iconTool({ tool: 'emoji', icon: 'emoji', title: 'Emoji \u2014 pick one to stamp on the board',
+  iconTool({ tool: 'emoji', icon: 'emoji', title: t('Emoji \u2014 pick one to stamp on the board'),
     onClick: (e, b) => { app.setTool('emoji'); app.syncUI(); openToolPopover(app, b, 'emoji'); } });
-  iconTool({ cmd: 'insert.image', icon: 'image', title: 'Insert image', onClick: () => app.command('insert.image') });
-  iconTool({ cmd: 'insert', icon: 'insert', pop: 'insert', title: 'Insert document, table or template',
+  iconTool({ cmd: 'insert.image', icon: 'image', title: t('Insert image'), onClick: () => app.command('insert.image') });
+  iconTool({ cmd: 'insert', icon: 'insert', pop: 'insert', title: t('Insert document, table or template'),
     onClick: (e, b) => openInsertPopover(app, b) });
   sep();
 
-  iconTool({ cmd: 'undo', icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => app.command('undo') });
-  iconTool({ cmd: 'redo', icon: 'redo', title: 'Redo (Ctrl+Y)', onClick: () => app.command('redo') });
-  iconTool({ cmd: 'more', icon: 'more', pop: 'more', title: 'More', onClick: (e, b) => openMorePopover(app, b) });
+  iconTool({ cmd: 'undo', icon: 'undo', title: t('Undo (Ctrl+Z)'), onClick: () => app.command('undo') });
+  iconTool({ cmd: 'redo', icon: 'redo', title: t('Redo (Ctrl+Y)'), onClick: () => app.command('redo') });
+  iconTool({ cmd: 'more', icon: 'more', pop: 'more', title: t('More'), onClick: (e, b) => openMorePopover(app, b) });
 
   wireTopBar(app);
 }
@@ -177,7 +178,7 @@ function initPhoneToolbar(app, bar) {
     const pen = PENS.find((p) => p.id === id);
     if (!pen) continue;
     const now = penById(app.settings, pen.id) || pen;
-    const b = btn('pen', `${pen.label} — tap again for thickness`,
+    const b = btn('pen', t('{pen} — tap again for thickness', { pen: pen.label }),
       penIcon(inkPaint(now.color), now.effect) + '<span class="size-dot"></span>');
     b.dataset.pen = pen.id;
     b.dataset.paint = now.color + '|' + now.effect;
@@ -186,7 +187,7 @@ function initPhoneToolbar(app, bar) {
   }
 
   /* ---- everything else that makes a mark, one tap deeper ---- */
-  const rest = btn('tool tool-sm', 'More pens and the highlighter', icon('chevronUp', 18));
+  const rest = btn('tool tool-sm', t('More pens and the highlighter'), icon('chevronUp', 18));
   rest.dataset.pop = 'pens';
   rest.addEventListener('click', () => {
     const body = h('div', { class: 'menu' });
@@ -200,12 +201,12 @@ function initPhoneToolbar(app, bar) {
       body.appendChild(row);
     }
     body.appendChild(h('div', { class: 'menu-sep' }));
-    body.appendChild(menuItem('Highlighter', 'highlighter', () => { app.setTool('highlighter'); app.syncUI(); }));
+    body.appendChild(menuItem(t('Highlighter'), 'highlighter', () => { app.setTool('highlighter'); app.syncUI(); }));
     openPopover(rest, body, { key: 'pens' });
   });
 
   /* ---- the rubber, beside the pens where it belongs ---- */
-  const er = btn('pen', 'Eraser — tap again for options',
+  const er = btn('pen', t('Eraser — tap again for options'),
     penIcon('#f7a8c4', 'none', 'eraser'));
   er.dataset.tool = 'eraser';
   er.addEventListener('click', () => {
@@ -223,72 +224,72 @@ function initPhoneToolbar(app, bar) {
    * stylus the finger is the only thing there is, it draws, and a button
    * offering to take that away would be a trap rather than a choice.
    */
-  const fingerBtn = btn('tool tool-sm', 'Finger draws or moves the board', icon('hand', 18));
+  const fingerBtn = btn('tool tool-sm', t('Finger draws or moves the board'), icon('hand', 18));
   fingerBtn.dataset.cmd = 'fingerInk';
   fingerBtn.addEventListener('click', () => { app.toggleFingerInk(); syncToolbar(app); });
 
   /* ---- undo and redo, the other thing a hand reaches for constantly ---- */
-  const un = btn('tool tool-sm', 'Undo', icon('undo', 18));
+  const un = btn('tool tool-sm', t('Undo'), icon('undo', 18));
   un.dataset.cmd = 'undo';
   un.addEventListener('click', () => app.command('undo'));
-  const re = btn('tool tool-sm', 'Redo', icon('redo', 18));
+  const re = btn('tool tool-sm', t('Redo'), icon('redo', 18));
   re.dataset.cmd = 'redo';
   re.addEventListener('click', () => app.command('redo'));
   sep();
 
   /* ---- things you add to the board ---- */
-  const add = btn('tool tool-sm', 'Add a note, text, shape, ruler or picture', icon('plus', 18));
+  const add = btn('tool tool-sm', t('Add a note, text, shape, ruler or picture'), icon('plus', 18));
   add.dataset.pop = 'add';
   add.addEventListener('click', () => {
     const pickTool = (t) => () => { app.setTool(t); app.syncUI(); };
     openPopover(add, h('div', { class: 'menu' },
-      menuItem('Sticky note', 'note', pickTool('note')),
-      menuItem('Text', 'text', pickTool('text')),
-      menuItem('Emoji', 'emoji', () => { app.setTool('emoji'); app.syncUI(); openToolPopover(app, add, 'emoji'); }),
+      menuItem(t('Sticky note'), 'note', pickTool('note')),
+      menuItem(t('Text'), 'text', pickTool('text')),
+      menuItem(t('Emoji'), 'emoji', () => { app.setTool('emoji'); app.syncUI(); openToolPopover(app, add, 'emoji'); }),
       // Shapes are a family, not one square. The chooser lives in the tool
       // popover, and on a phone there is no shape button to open it from - so
       // picking Shape here opens it, anchored where the finger already is.
-      menuItem('Shape', 'shapes', () => { app.setTool('shape'); app.syncUI(); openToolPopover(app, add, 'shape'); }),
+      menuItem(t('Shape'), 'shapes', () => { app.setTool('shape'); app.syncUI(); openToolPopover(app, add, 'shape'); }),
       // A phone has no Ctrl+V. Holding a finger on bare board opens the same
       // menu with a Paste that lands where you pressed; this is the one for
       // when you would rather not hunt for a clear patch of canvas.
-      menuItem('Paste', 'copy', () => app.pasteAt(null)),
-      menuItem(app.ruler.visible ? 'Hide ruler' : 'Ruler', 'ruler', () => app.command('ruler')),
+      menuItem(t('Paste'), 'copy', () => app.pasteAt(null)),
+      menuItem(app.ruler.visible ? t('Hide ruler') : t('Ruler'), 'ruler', () => app.command('ruler')),
       h('div', { class: 'menu-sep' }),
-      menuItem('Picture…', 'image', () => app.command('insert.image')),
-      menuItem('Document (Word, PowerPoint, PDF)…', 'doc', () => app.command('insert.document')),
-      menuItem('Table', 'table', () => app.command('insert.table')),
-      menuItem('Answer cover', 'curtain', () => app.command('insert.curtain'))
+      menuItem(t('Picture…'), 'image', () => app.command('insert.image')),
+      menuItem(t('Document (Word, PowerPoint, PDF)…'), 'doc', () => app.command('insert.document')),
+      menuItem(t('Table'), 'table', () => app.command('insert.table')),
+      menuItem(t('Answer cover'), 'curtain', () => app.command('insert.curtain'))
     ), { key: 'add' });
   });
 
   /* ---- and the rest: pointing tools first, then the old More menu ---- */
-  const more = btn('tool tool-sm', 'More', icon('more', 18));
+  const more = btn('tool tool-sm', t('More'), icon('more', 18));
   more.dataset.pop = 'more';
   more.addEventListener('click', () => {
     const pickTool = (t) => () => { app.setTool(t); app.syncUI(); };
     openPopover(more, h('div', { class: 'menu' },
-      menuItem('Select', 'select', pickTool('select')),
-      menuItem('Lasso select', 'lasso', pickTool('lasso')),
-      menuItem('Move the board', 'hand', pickTool('pan')),
-      menuItem('Laser pointer', 'laser', pickTool('laser')),
+      menuItem(t('Select'), 'select', pickTool('select')),
+      menuItem(t('Lasso select'), 'lasso', pickTool('lasso')),
+      menuItem(t('Move the board'), 'hand', pickTool('pan')),
+      menuItem(t('Laser pointer'), 'laser', pickTool('laser')),
       h('div', { class: 'menu-sep' }),
       ...teachingItems(app),
       h('div', { class: 'menu-sep' }),
-      menuItem('Boards…', 'board', () => app.panels.boards()),
-      menuItem('Templates…', 'template', () => app.panels.templates()),
-      menuItem('Canvas…', 'palette', () => app.panels.background()),
-      menuItem('Select all', 'select', () => app.command('edit.selectAll')),
+      menuItem(t('Boards…'), 'board', () => app.panels.boards()),
+      menuItem(t('Templates…'), 'template', () => app.panels.templates()),
+      menuItem(t('Canvas…'), 'palette', () => app.panels.background()),
+      menuItem(t('Select all'), 'select', () => app.command('edit.selectAll')),
       h('div', { class: 'menu-sep' }),
-      menuItem('Export as PNG…', 'export', () => app.command('export.png')),
-      menuItem('Export as PDF…', 'doc', () => app.command('export.pdf')),
-      menuItem('Save a copy…', 'doc', () => app.command('board.save')),
-      menuItem('Open board…', 'board', () => app.command('board.open')),
+      menuItem(t('Export as PNG…'), 'export', () => app.command('export.png')),
+      menuItem(t('Export as PDF…'), 'doc', () => app.command('export.pdf')),
+      menuItem(t('Save a copy…'), 'doc', () => app.command('board.save')),
+      menuItem(t('Open board…'), 'board', () => app.command('board.open')),
       h('div', { class: 'menu-sep' }),
-      menuItem('Share on this network…', 'share', () => app.panels.sharing()),
-      menuItem('Settings', 'settings', () => app.panels.settings()),
-      menuItem('About GazBoard', 'board', () => app.showAbout()),
-      menuItem('Clear canvas', 'trash', () => app.command('edit.clear'), { danger: true })
+      menuItem(t('Share on this network…'), 'share', () => app.panels.sharing()),
+      menuItem(t('Settings'), 'settings', () => app.panels.settings()),
+      menuItem(t('About GazBoard'), 'board', () => app.showAbout()),
+      menuItem(t('Clear canvas'), 'trash', () => app.command('edit.clear'), { danger: true })
     ), { key: 'more' });
   });
 }
@@ -305,7 +306,7 @@ function wireTopBar(app) {
     ['btnSettings', 'settings', () => app.panels.settings()],
     ['btnHelp', 'help', () => app.showShortcuts()]
   ];
-  const labels = { btnBoards: 'Boards', btnTemplates: 'Templates', btnBackground: 'Canvas', btnExport: 'Export', btnPresent: 'Present' };
+  const labels = { btnBoards: t('Boards'), btnTemplates: t('Templates'), btnBackground: t('Canvas'), btnExport: t('Export'), btnPresent: t('Present') };
   for (const [id, ic, fn] of top) {
     const el = document.getElementById(id);
     // A build without sharing has no such button in the page, and asking for
@@ -349,12 +350,12 @@ function initPagebar(app) {
   btn('more').addEventListener('click', (e) => {
     const last = app.pageCount <= 1;
     openPopover(e.currentTarget, h('div', { class: 'menu' },
-      menuItem('Add a page after this one', 'insert', () => app.command('page.add')),
-      menuItem('Duplicate this page', 'duplicate', () => app.command('page.duplicate')),
-      menuItem('Fit the whole pad in the window', 'fit', () => app.command('view.fitAllPages')),
-      menuItem('Fit everything onto the paper', 'shapes', () => app.command('page.fitContent')),
+      menuItem(t('Add a page after this one'), 'insert', () => app.command('page.add')),
+      menuItem(t('Duplicate this page'), 'duplicate', () => app.command('page.duplicate')),
+      menuItem(t('Fit the whole pad in the window'), 'fit', () => app.command('view.fitAllPages')),
+      menuItem(t('Fit everything onto the paper'), 'shapes', () => app.command('page.fitContent')),
       h('div', { class: 'menu-sep' }),
-      menuItem('Delete this page', 'trash', () => app.command('page.delete'), { danger: true, disabled: last })
+      menuItem(t('Delete this page'), 'trash', () => app.command('page.delete'), { danger: true, disabled: last })
     ), { align: 'end' });
   });
 }
@@ -389,7 +390,7 @@ function swatchRow(colors, current, onPick, extra = []) {
     b.style.background = shown;
     if (shown !== c) {
       b.classList.add('sw-adaptive');
-      b.title = c + ' — follows the board: light on dark, black on white and in exports';
+      b.title = t('{c} — follows the board: light on dark, black on white and in exports', { c });
     }
     b.addEventListener('click', () => { markActive(wrap, b); onPick(c); });
     wrap.appendChild(b);
@@ -403,7 +404,7 @@ function sizeRow(sizes, current, onPick, color = '#201f1e') {
   // the dots are a preview of the ink, so they follow it onto a dark board
   const dotColor = inkPaint(color);
   for (const s of sizes) {
-    const b = h('button', { class: 'size' + (s === current ? ' active' : ''), title: s + ' px' });
+    const b = h('button', { class: 'size' + (s === current ? ' active' : ''), title: t('{s} px', { s }) });
     const dotSize = Math.max(4, Math.min(22, s));
     b.innerHTML = `<i style="width:${dotSize}px;height:${dotSize}px;background:${dotColor}"></i>`;
     b.addEventListener('click', () => { markActive(wrap, b); onPick(s); });
@@ -462,7 +463,7 @@ function emojiPicker(app) {
   };
 
   const search = h('input', {
-    class: 'emoji-search', type: 'search', placeholder: 'Search \u2014 tick, arrow, idea\u2026',
+    class: 'emoji-search', type: 'search', placeholder: t('Search \u2014 tick, arrow, idea\u2026'),
     // a phone keyboard that autocorrects a search term is nobody's friend
     autocomplete: 'off', autocorrect: 'off', autocapitalize: 'none', spellcheck: 'false'
   });
@@ -479,7 +480,7 @@ function emojiPicker(app) {
     results.style.display = '';
     const found = searchEmoji(q);
     if (!found.length) {
-      results.appendChild(h('div', { class: 'emoji-empty' }, 'Nothing matches \u201c' + q + '\u201d'));
+      results.appendChild(h('div', { class: 'emoji-empty' }, t('Nothing matches \u201c{q}\u201d', { q })));
       return;
     }
     for (const e of found) results.appendChild(cell(e));
@@ -502,8 +503,8 @@ function emojiPicker(app) {
   const recent = (s.emojiRecent || []).filter(Boolean);
   if (recent.length) {
     const row = h('div', { class: 'emoji-grid' });
-    for (const ch of recent) row.appendChild(cell({ ch, name: 'Recently used' }));
-    sections.appendChild(h('h4', {}, 'Recent'));
+    for (const ch of recent) row.appendChild(cell({ ch, name: t('Recently used') }));
+    sections.appendChild(h('h4', {}, t('Recent')));
     sections.appendChild(row);
   }
   for (const g of EMOJI_GROUPS) {
@@ -573,7 +574,7 @@ export function openToolPopover(app, anchor, tool) {
      * every export.
      */
     const pickInk = (c) => pickPenInk(app, c);
-    const customInk = h('label', { class: 'sw sw-custom', title: 'Any colour — used exactly as picked, whatever the theme' });
+    const customInk = h('label', { class: 'sw sw-custom', title: t('Any colour — used exactly as picked, whatever the theme') });
     const customInput = h('input', { type: 'color' });
     customInput.value = s.penColor || '#201f1e';
     customInput.addEventListener('input', () => { customInk.style.background = customInput.value; pickInk(customInput.value); });
@@ -581,28 +582,28 @@ export function openToolPopover(app, anchor, tool) {
     customInk.appendChild(customInput);
 
     body = h('div', {},
-      h('h4', {}, 'Ink colour'),
+      h('h4', {}, t('Ink colour')),
       swatchRow(PEN_COLORS, s.penEffect === 'none' ? s.penColor : null, (c) => {
         pickInk(c); closePopover();
       }, [customInk]),
-      h('div', { class: 'row', style: 'margin-top:12px' }, h('label', {}, 'Effect')),
+      h('div', { class: 'row', style: 'margin-top:12px' }, h('label', {}, t('Effect'))),
       effects,
-      h('h4', { style: 'margin-top:6px' }, 'Thickness'),
+      h('h4', { style: 'margin-top:6px' }, t('Thickness')),
       sizeRow([2, 4, 7, 12, 20], s.penWidth, (v) => { s.penWidth = v; app.saveSettings(); app.syncUI(); }, s.penColor),
       h('div', { class: 'row', style: 'margin-top:12px' },
-        toggle('Straighten shapes I draw', s.inkToShape, (v) => {
+        toggle(t('Straighten shapes I draw'), s.inkToShape, (v) => {
           s.inkToShape = v;
           app.saveSettings();
-          app.toast(v ? 'Hand-drawn shapes will be straightened' : 'Ink is left exactly as drawn', 'pen');
+          app.toast(v ? t('Hand-drawn shapes will be straightened') : t('Ink is left exactly as drawn'), 'pen');
         })),
       h('div', { class: 'row' },
-        toggle('Ruler snapping', app.ruler.snap, (v) => { app.ruler.snap = v; }))
+        toggle(t('Ruler snapping'), app.ruler.snap, (v) => { app.ruler.snap = v; }))
     );
   } else if (tool === 'highlighter') {
     body = h('div', {},
-      h('h4', {}, 'Highlighter'),
+      h('h4', {}, t('Highlighter')),
       swatchRow(HIGHLIGHTER_COLORS, s.highlighterColor, (c) => { s.highlighterColor = c; app.saveSettings(); app.syncUI(); closePopover(); }),
-      h('h4', { style: 'margin-top:12px' }, 'Thickness'),
+      h('h4', { style: 'margin-top:12px' }, t('Thickness')),
       sizeRow([12, 20, 30, 44], s.highlighterWidth, (v) => { s.highlighterWidth = v; app.saveSettings(); app.syncUI(); }, s.highlighterColor)
     );
   } else if (tool === 'eraser') {
@@ -620,37 +621,37 @@ export function openToolPopover(app, anchor, tool) {
       return b;
     };
     body = h('div', { style: 'min-width:270px' },
-      h('h4', {}, 'Eraser size'),
+      h('h4', {}, t('Eraser size')),
       sizeRow([10, 16, 30, 60], s.eraserSize, (v) => { s.eraserSize = v; app.saveSettings(); app.syncUI(); }),
-      h('h4', { style: 'margin-top:14px' }, 'Mode'),
+      h('h4', { style: 'margin-top:14px' }, t('Mode')),
       h('div', { class: 'menu', style: 'padding:0' },
-        mkMode('partial', 'Erase parts of ink', 'Rubs strokes out where you drag'),
-        mkMode('object', 'Erase whole strokes', 'Removes a whole stroke in one touch'),
-        mkMode('all', 'Erase everything', 'Clears the canvas'))
+        mkMode('partial', t('Erase parts of ink'), t('Rubs strokes out where you drag')),
+        mkMode('object', t('Erase whole strokes'), t('Removes a whole stroke in one touch')),
+        mkMode('all', t('Erase everything'), t('Clears the canvas')))
     );
   } else if (tool === 'note') {
     body = h('div', {},
-      h('h4', {}, 'Note colour'),
+      h('h4', {}, t('Note colour')),
       swatchRow(NOTE_COLORS, s.noteColor, (c) => { s.noteColor = c; app.saveSettings(); app.syncUI(); app.applyToSelection({ color: c }, 'note'); closePopover(); }),
-      h('h4', { style: 'margin-top:12px' }, 'Size'),
-      h('div', { class: 'row' }, ...[['Small', 140], ['Medium', 200], ['Large', 280]].map(([l, v]) => {
+      h('h4', { style: 'margin-top:12px' }, t('Size')),
+      h('div', { class: 'row' }, ...[[t('Small'), 140], [t('Medium'), 200], [t('Large'), 280]].map(([l, v]) => {
         const b = h('button', { class: 'btn' + (s.noteSize === v ? ' primary' : '') }, l);
         b.style.fontSize = '12.5px';
         b.addEventListener('click', () => { markActive(b.parentNode, b, 'primary'); s.noteSize = v; app.saveSettings(); });
         return b;
       })),
-      h('h4', { style: 'margin-top:12px' }, 'Font'),
+      h('h4', { style: 'margin-top:12px' }, t('Font')),
       fontRow(FONTS, s.noteFont, (id) => {
         s.noteFont = id; app.saveSettings(); app.applyToSelection({ font: id }, 'note');
       })
     );
   } else if (tool === 'text') {
     body = h('div', {},
-      h('h4', {}, 'Text colour'),
+      h('h4', {}, t('Text colour')),
       swatchRow(TEXT_COLORS, s.textColor, (c) => { s.textColor = c; app.saveSettings(); app.syncUI(); app.applyToSelection({ color: c }, 'text'); closePopover(); }),
-      h('h4', { style: 'margin-top:12px' }, 'Size'),
+      h('h4', { style: 'margin-top:12px' }, t('Size')),
       sizeRow([16, 24, 32, 48, 72], s.textSize, (v) => { s.textSize = v; app.saveSettings(); app.applyToSelection({ fontSize: v }, 'text'); }),
-      h('h4', { style: 'margin-top:12px' }, 'Font'),
+      h('h4', { style: 'margin-top:12px' }, t('Font')),
       fontRow(FONTS, s.textFont, (id) => {
         s.textFont = id; app.saveSettings(); app.applyToSelection({ font: id }, 'text');
       })
@@ -667,17 +668,17 @@ export function openToolPopover(app, anchor, tool) {
     }
     const fills = h('div', { class: 'swatches' });
     for (const c of SHAPE_FILLS) {
-      const b = h('button', { class: 'sw' + (c === s.shapeFill ? ' active' : ''), title: c === 'none' ? 'No fill' : c });
+      const b = h('button', { class: 'sw' + (c === s.shapeFill ? ' active' : ''), title: c === 'none' ? t('No fill') : c });
       b.style.background = c === 'none' ? 'repeating-linear-gradient(45deg,#fff,#fff 4px,#ddd 4px,#ddd 8px)' : c;
       b.addEventListener('click', () => { markActive(fills, b); s.shapeFill = c; app.saveSettings(); app.applyToSelection({ fill: c }, 'shape'); });
       fills.appendChild(b);
     }
     body = h('div', {},
-      h('h4', {}, 'Shape'), grid,
-      h('h4', { style: 'margin-top:12px' }, 'Outline'),
+      h('h4', {}, t('Shape')), grid,
+      h('h4', { style: 'margin-top:12px' }, t('Outline')),
       swatchRow(SHAPE_STROKES, s.shapeStroke, (c) => { s.shapeStroke = c; app.saveSettings(); app.applyToSelection({ stroke: c }, 'shape'); }),
-      h('h4', { style: 'margin-top:12px' }, 'Fill'), fills,
-      h('h4', { style: 'margin-top:12px' }, 'Line width'),
+      h('h4', { style: 'margin-top:12px' }, t('Fill')), fills,
+      h('h4', { style: 'margin-top:12px' }, t('Line width')),
       sizeRow([1, 2, 3, 5, 8], s.shapeLineWidth, (v) => { s.shapeLineWidth = v; app.saveSettings(); app.applyToSelection({ lineWidth: v }, 'shape'); }, s.shapeStroke)
     );
   }
@@ -701,59 +702,59 @@ function menuItem(label, iconName, onClick, opts = {}) {
 function teachingItems(app) {
   const lifted = app.store.objects.some((o) => o.type === 'curtain' && o.revealed);
   return [
-    menuItem(app.presenting ? 'Stop presenting' : 'Present', 'present', () => app.command('view.present'), { key: app.presenting ? 'Esc' : 'F5' }),
-    menuItem(app.timer?.visible ? 'Close the class timer' : 'Class timer', 'timer', () => app.command('timer.open')),
-    menuItem('Cover answers again', 'curtain', () => app.command('curtain.coverAll'), { disabled: !lifted })
+    menuItem(app.presenting ? t('Stop presenting') : t('Present'), 'present', () => app.command('view.present'), { key: app.presenting ? 'Esc' : 'F5' }),
+    menuItem(app.timer?.visible ? t('Close the class timer') : t('Class timer'), 'timer', () => app.command('timer.open')),
+    menuItem(t('Cover answers again'), 'curtain', () => app.command('curtain.coverAll'), { disabled: !lifted })
   ];
 }
 
 export function openInsertPopover(app, anchor) {
   const body = h('div', { class: 'menu' },
-    menuItem('Image…', 'image', () => app.command('insert.image')),
-    menuItem('Document (Word, PowerPoint, PDF)…', 'doc', () => app.command('insert.document')),
-    menuItem('Table', 'table', () => app.command('insert.table')),
-    menuItem('Answer cover', 'curtain', () => app.command('insert.curtain')),
+    menuItem(t('Image…'), 'image', () => app.command('insert.image')),
+    menuItem(t('Document (Word, PowerPoint, PDF)…'), 'doc', () => app.command('insert.document')),
+    menuItem(t('Table'), 'table', () => app.command('insert.table')),
+    menuItem(t('Answer cover'), 'curtain', () => app.command('insert.curtain')),
     h('div', { class: 'menu-sep' }),
-    menuItem('Paste from clipboard', 'copy', () => app.command('edit.paste'), { key: 'Ctrl+V' }),
-    menuItem('Templates…', 'template', () => app.panels.templates())
+    menuItem(t('Paste from clipboard'), 'copy', () => app.command('edit.paste'), { key: 'Ctrl+V' }),
+    menuItem(t('Templates…'), 'template', () => app.panels.templates())
   );
   openPopover(anchor, body, { key: 'insert' });
 }
 
 export function openMorePopover(app, anchor) {
   const body = h('div', { class: 'menu' },
-    menuItem('Templates…', 'template', () => app.panels.templates()),
-    menuItem('Canvas…', 'palette', () => app.panels.background()),
-    menuItem(app.ruler.visible ? 'Hide ruler' : 'Show ruler', 'ruler', () => app.command('ruler'), { key: 'Ctrl+R' }),
+    menuItem(t('Templates…'), 'template', () => app.panels.templates()),
+    menuItem(t('Canvas…'), 'palette', () => app.panels.background()),
+    menuItem(app.ruler.visible ? t('Hide ruler') : t('Show ruler'), 'ruler', () => app.command('ruler'), { key: 'Ctrl+R' }),
     h('div', { class: 'menu-sep' }),
     ...teachingItems(app),
     h('div', { class: 'menu-sep' }),
-    menuItem('Select all', 'select', () => app.command('edit.selectAll'), { key: 'Ctrl+A' }),
-    menuItem('Export as PNG…', 'export', () => app.command('export.png')),
-    menuItem('Export as PDF…', 'doc', () => app.command('export.pdf')),
-    menuItem('Save a copy…', 'doc', () => app.command('board.save'), { key: 'Ctrl+S' }),
-    menuItem('Open board…', 'board', () => app.command('board.open'), { key: 'Ctrl+O' }),
+    menuItem(t('Select all'), 'select', () => app.command('edit.selectAll'), { key: 'Ctrl+A' }),
+    menuItem(t('Export as PNG…'), 'export', () => app.command('export.png')),
+    menuItem(t('Export as PDF…'), 'doc', () => app.command('export.pdf')),
+    menuItem(t('Save a copy…'), 'doc', () => app.command('board.save'), { key: 'Ctrl+S' }),
+    menuItem(t('Open board…'), 'board', () => app.command('board.open'), { key: 'Ctrl+O' }),
     h('div', { class: 'menu-sep' }),
-    menuItem('Share on this network…', 'share', () => app.panels.sharing()),
-    menuItem('Settings', 'settings', () => app.panels.settings()),
-    menuItem('Keyboard shortcuts', 'help', () => app.showShortcuts()),
-    menuItem('Check for updates…', 'update', () => app.checkForUpdates({ force: true })),
-    menuItem('About GazBoard', 'board', () => app.showAbout()),
-    menuItem('Clear canvas', 'trash', () => app.command('edit.clear'), { danger: true })
+    menuItem(t('Share on this network…'), 'share', () => app.panels.sharing()),
+    menuItem(t('Settings'), 'settings', () => app.panels.settings()),
+    menuItem(t('Keyboard shortcuts'), 'help', () => app.showShortcuts()),
+    menuItem(t('Check for updates…'), 'update', () => app.checkForUpdates({ force: true })),
+    menuItem(t('About GazBoard'), 'board', () => app.showAbout()),
+    menuItem(t('Clear canvas'), 'trash', () => app.command('edit.clear'), { danger: true })
   );
   openPopover(anchor, body, { key: 'more' });
 }
 
 export function openExportPopover(app, anchor) {
   const body = h('div', { class: 'menu' },
-    menuItem('Export board as PNG…', 'image', () => app.command('export.png')),
-    menuItem('Export selection as PNG…', 'image', () => app.command('export.pngSelection'), { disabled: !app.surface.selection.size }),
-    menuItem('Export as PDF…', 'doc', () => app.command('export.pdf')),
-    menuItem('Export as SVG…', 'export', () => app.command('export.svg')),
-    menuItem('Fit everything onto the paper', 'shapes', () => app.command('page.fitContent'), { disabled: !app.store.pageCount }),
+    menuItem(t('Export board as PNG…'), 'image', () => app.command('export.png')),
+    menuItem(t('Export selection as PNG…'), 'image', () => app.command('export.pngSelection'), { disabled: !app.surface.selection.size }),
+    menuItem(t('Export as PDF…'), 'doc', () => app.command('export.pdf')),
+    menuItem(t('Export as SVG…'), 'export', () => app.command('export.svg')),
+    menuItem(t('Fit everything onto the paper'), 'shapes', () => app.command('page.fitContent'), { disabled: !app.store.pageCount }),
     h('div', { class: 'menu-sep' }),
-    menuItem('Save a copy (.gazboard)…', 'doc', () => app.command('board.save'), { key: 'Ctrl+S' }),
-    menuItem('Open a board file…', 'board', () => app.command('board.open'), { key: 'Ctrl+O' })
+    menuItem(t('Save a copy (.gazboard)…'), 'doc', () => app.command('board.save'), { key: 'Ctrl+S' }),
+    menuItem(t('Open a board file…'), 'board', () => app.command('board.open'), { key: 'Ctrl+O' })
   );
   openPopover(anchor, body, { key: 'export', placement: 'bottom', align: 'end' });
 }
@@ -837,8 +838,8 @@ export function syncToolbar(app) {
     if (fb.dataset.face !== want) { fb.innerHTML = icon(want, 18); fb.dataset.face = want; }
     fb.classList.toggle('active', !drawing);
     fb.title = drawing
-      ? 'Your finger draws — tap to move the board with it instead'
-      : 'Your finger moves the board — tap to draw with it instead';
+      ? t('Your finger draws — tap to move the board with it instead')
+      : t('Your finger moves the board — tap to draw with it instead');
   }
 
   for (const btn of bar.querySelectorAll('.tool')) {

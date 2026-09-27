@@ -2,6 +2,7 @@
 
 import { h, openPopover, closePopover } from './popover.js';
 import { icon } from './icons.js';
+import { t } from '../i18n.js';
 import { PEN_COLORS, NOTE_COLORS, TEXT_COLORS, SHAPE_STROKES, SHAPE_FILLS } from './palettes.js';
 
 function item(label, iconName, onClick, opts = {}) {
@@ -30,63 +31,63 @@ export function showContextMenu(app, e, fromSelectionBar = false) {
   const allLocked = has && app.selected.every((o) => o.locked);
   // Lifting a cover is the one thing a cover is for, so it leads - locked or not.
   if (has && app.selected.some((o) => o.type === 'curtain' && !o.revealed)) {
-    menu.appendChild(item('Reveal', 'eye', () => app.command('curtain.reveal')));
+    menu.appendChild(item(t('Reveal'), 'eye', () => app.command('curtain.reveal')));
     menu.appendChild(h('div', { class: 'menu-sep' }));
   }
 
   if (allLocked) {
-    menu.appendChild(item('Unlock', 'unlock', () => app.command('edit.lock')));
+    menu.appendChild(item(t('Unlock'), 'unlock', () => app.command('edit.lock')));
     menu.appendChild(h('div', { class: 'menu-sep' }));
-    menu.appendChild(item('Copy', 'copy', () => app.command('edit.copy'), { key: 'Ctrl+C' }));
-    menu.appendChild(item('Export selection as PNG…', 'image', () => app.command('export.pngSelection')));
+    menu.appendChild(item(t('Copy'), 'copy', () => app.command('edit.copy'), { key: 'Ctrl+C' }));
+    menu.appendChild(item(t('Export selection as PNG…'), 'image', () => app.command('export.pngSelection')));
     openPopover({ x: e.clientX, y: e.clientY }, menu, { key: 'ctx' });
     return;
   }
 
   if (has) {
-    if (editable) menu.appendChild(item('Edit text', 'text', () => app.beginTextEdit(one), { key: 'F2' }));
-    menu.appendChild(item('Cut', 'copy', () => app.command('edit.cut'), { key: 'Ctrl+X' }));
-    menu.appendChild(item('Copy', 'copy', () => app.command('edit.copy'), { key: 'Ctrl+C' }));
-    menu.appendChild(item('Duplicate', 'duplicate', () => app.command('edit.duplicate'), { key: 'Ctrl+D' }));
+    if (editable) menu.appendChild(item(t('Edit text'), 'text', () => app.beginTextEdit(one), { key: 'F2' }));
+    menu.appendChild(item(t('Cut'), 'copy', () => app.command('edit.cut'), { key: 'Ctrl+X' }));
+    menu.appendChild(item(t('Copy'), 'copy', () => app.command('edit.copy'), { key: 'Ctrl+C' }));
+    menu.appendChild(item(t('Duplicate'), 'duplicate', () => app.command('edit.duplicate'), { key: 'Ctrl+D' }));
     menu.appendChild(h('div', { class: 'menu-sep' }));
     const grouped = app.selectedGroups().size > 0;
     if (app.surface.selection.size > 1 && !grouped) {
-      menu.appendChild(item('Group', 'group', () => app.command('edit.group'), { key: 'Ctrl+G' }));
+      menu.appendChild(item(t('Group'), 'group', () => app.command('edit.group'), { key: 'Ctrl+G' }));
     }
     if (grouped) {
       if (app.selectedGroups().size === 1) {
         const named = app.selected.find((o) => o.groupName)?.groupName;
-        menu.appendChild(item(named ? `Rename group (${named})` : 'Name this group…', 'text',
+        menu.appendChild(item(named ? t('Rename group ({name})', { name: named }) : t('Name this group…'), 'text',
           () => app.command('edit.nameGroup')));
       }
-      menu.appendChild(item('Ungroup', 'ungroup', () => app.command('edit.ungroup'), { key: 'Ctrl+Shift+G' }));
+      menu.appendChild(item(t('Ungroup'), 'ungroup', () => app.command('edit.ungroup'), { key: 'Ctrl+Shift+G' }));
       if (app.surface.selection.size > 1) {
-        menu.appendChild(item('Group again', 'group', () => app.command('edit.group'), { key: 'Ctrl+G' }));
+        menu.appendChild(item(t('Group again'), 'group', () => app.command('edit.group'), { key: 'Ctrl+G' }));
       }
     }
     if (grouped || app.surface.selection.size > 1) menu.appendChild(h('div', { class: 'menu-sep' }));
-    menu.appendChild(item('Bring to front', 'front', () => app.command('order.front'), { key: 'Ctrl+Shift+]' }));
-    menu.appendChild(item('Send to back', 'front', () => app.command('order.back'), { key: 'Ctrl+Shift+[' }));
+    menu.appendChild(item(t('Bring to front'), 'front', () => app.command('order.front'), { key: 'Ctrl+Shift+]' }));
+    menu.appendChild(item(t('Send to back'), 'front', () => app.command('order.back'), { key: 'Ctrl+Shift+[' }));
     menu.appendChild(h('div', { class: 'menu-sep' }));
     const locked = [...app.surface.selection].every((id) => app.store.get(id)?.locked);
-    menu.appendChild(item(locked ? 'Unlock' : 'Lock', locked ? 'unlock' : 'lock', () => app.command('edit.lock')));
-    menu.appendChild(item('Export selection as PNG…', 'image', () => app.command('export.pngSelection')));
+    menu.appendChild(item(locked ? t('Unlock') : t('Lock'), locked ? 'unlock' : 'lock', () => app.command('edit.lock')));
+    menu.appendChild(item(t('Export selection as PNG…'), 'image', () => app.command('export.pngSelection')));
     menu.appendChild(h('div', { class: 'menu-sep' }));
-    menu.appendChild(item('Delete', 'trash', () => app.command('edit.delete'), { key: 'Del', danger: true }));
+    menu.appendChild(item(t('Delete'), 'trash', () => app.command('edit.delete'), { key: 'Del', danger: true }));
   } else {
     // Pasted where you pressed, not back where the originals were - which is
     // the whole point of asking for it at a particular spot.
-    menu.appendChild(item('Paste', 'copy', () => app.pasteAt(wp), { key: 'Ctrl+V' }));
-    menu.appendChild(item('Select all', 'select', () => app.command('edit.selectAll'), { key: 'Ctrl+A' }));
+    menu.appendChild(item(t('Paste'), 'copy', () => app.pasteAt(wp), { key: 'Ctrl+V' }));
+    menu.appendChild(item(t('Select all'), 'select', () => app.command('edit.selectAll'), { key: 'Ctrl+A' }));
     menu.appendChild(h('div', { class: 'menu-sep' }));
-    menu.appendChild(item('Sticky note here', 'note', () => app.addNoteAt(wp)));
-    menu.appendChild(item('Text here', 'text', () => app.addTextAt(wp)));
-    menu.appendChild(item('Insert image…', 'image', () => app.command('insert.image')));
-    menu.appendChild(item('Insert document…', 'doc', () => app.command('insert.document')));
+    menu.appendChild(item(t('Sticky note here'), 'note', () => app.addNoteAt(wp)));
+    menu.appendChild(item(t('Text here'), 'text', () => app.addTextAt(wp)));
+    menu.appendChild(item(t('Insert image…'), 'image', () => app.command('insert.image')));
+    menu.appendChild(item(t('Insert document…'), 'doc', () => app.command('insert.document')));
     menu.appendChild(h('div', { class: 'menu-sep' }));
-    menu.appendChild(item('Templates…', 'template', () => app.panels.templates()));
-    menu.appendChild(item('Canvas…', 'palette', () => app.panels.background()));
-    menu.appendChild(item('Clear canvas', 'trash', () => app.command('edit.clear'), { danger: true }));
+    menu.appendChild(item(t('Templates…'), 'template', () => app.panels.templates()));
+    menu.appendChild(item(t('Canvas…'), 'palette', () => app.panels.background()));
+    menu.appendChild(item(t('Clear canvas'), 'trash', () => app.command('edit.clear'), { danger: true }));
   }
   openPopover({ x: e.clientX, y: e.clientY }, menu, { key: 'ctx' });
 }
@@ -112,8 +113,8 @@ export function updateSelectionBar(app) {
    */
   const covers = sel.filter((o) => o.type === 'curtain' && !o.revealed);
   const revealBtn = () => {
-    const b = h('button', { title: 'Reveal what is underneath', class: 'reveal-btn', html: icon('eye', 17) });
-    b.insertAdjacentHTML('beforeend', '<span>Reveal</span>');
+    const b = h('button', { title: t('Reveal what is underneath'), class: 'reveal-btn', html: icon('eye', 17) });
+    b.insertAdjacentHTML('beforeend', t('<span>Reveal</span>'));
     b.addEventListener('click', () => app.command('curtain.reveal'));
     return b;
   };
@@ -121,12 +122,12 @@ export function updateSelectionBar(app) {
   if (allLocked) {
     const label = h('span', { style: 'display:flex;align-items:center;gap:6px;padding:0 8px;font-size:12.5px;color:var(--text-2)' },
       h('span', { html: icon('lock', 15), style: 'display:flex' }),
-      h('span', {}, sel.length > 1 ? `${sel.length} locked` : 'Locked'));
+      h('span', {}, sel.length > 1 ? t('{n} locked', { n: sel.length }) : t('Locked')));
     bar.appendChild(label);
-    const unlock = h('button', { title: 'Unlock', html: icon('unlock', 17) });
+    const unlock = h('button', { title: t('Unlock'), html: icon('unlock', 17) });
     unlock.addEventListener('click', () => app.command('edit.lock'));
     unlock.style.cssText += 'width:auto;padding:0 10px;gap:6px;color:var(--accent-2)';
-    unlock.insertAdjacentHTML('beforeend', '<span style="font-size:12.5px">Unlock</span>');
+    unlock.insertAdjacentHTML('beforeend', t('<span style="font-size:12.5px">Unlock</span>'));
     unlock.style.display = 'flex';
     unlock.style.alignItems = 'center';
     bar.appendChild(unlock);
@@ -146,7 +147,7 @@ export function updateSelectionBar(app) {
   const COLOURABLE = new Set(['stroke', 'shape', 'note', 'text', 'table']);
   if (types.size === 1 && COLOURABLE.has([...types][0])) {
     const type = [...types][0];
-    const swatch = h('button', { class: 'colour-btn', title: 'Colour' });
+    const swatch = h('button', { class: 'colour-btn', title: t('Colour') });
     const dot = h('span', {});
     const currentColor = type === 'shape' ? sel[0].stroke : sel[0].color;
     dot.style.cssText = `width:17px;height:17px;border-radius:50%;background:${currentColor || '#201f1e'};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)`;
@@ -158,26 +159,26 @@ export function updateSelectionBar(app) {
   if (covers.length) bar.appendChild(revealBtn());
 
   if ([...types].every((t) => ['note', 'text', 'shape', 'table'].includes(t)) && sel.length === 1)
-    bar.appendChild(mk('Edit text (F2)', 'text', () => app.beginTextEdit(sel[0])));
+    bar.appendChild(mk(t('Edit text (F2)'), 'text', () => app.beginTextEdit(sel[0])));
 
   // a table gets its own row and column controls
   if (sel.length === 1 && sel[0].type === 'table') {
-    const t = sel[0];
+    const tbl = sel[0];
     bar.appendChild(h('span', { class: 'bar-sep' }));
-    bar.appendChild(mk('Add row', 'rowAdd', () => app.command('table.addRow')));
-    const lessRow = mk('Remove row', 'rowDel', () => app.command('table.removeRow'));
-    if ((t.rows | 0) <= 1) lessRow.disabled = true;
+    bar.appendChild(mk(t('Add row'), 'rowAdd', () => app.command('table.addRow')));
+    const lessRow = mk(t('Remove row'), 'rowDel', () => app.command('table.removeRow'));
+    if ((tbl.rows | 0) <= 1) lessRow.disabled = true;
     bar.appendChild(lessRow);
-    bar.appendChild(mk('Add column', 'colAdd', () => app.command('table.addCol')));
-    const lessCol = mk('Remove column', 'colDel', () => app.command('table.removeCol'));
-    if ((t.cols | 0) <= 1) lessCol.disabled = true;
+    bar.appendChild(mk(t('Add column'), 'colAdd', () => app.command('table.addCol')));
+    const lessCol = mk(t('Remove column'), 'colDel', () => app.command('table.removeCol'));
+    if ((tbl.cols | 0) <= 1) lessCol.disabled = true;
     bar.appendChild(lessCol);
     bar.appendChild(h('span', { class: 'bar-sep' }));
   }
 
   // Touchscreens have no Ctrl to hold, so gathering several up is a mode here.
   if (matchMedia('(pointer: coarse)').matches) {
-    const more = mk(app.multiSelect ? 'Done adding' : 'Add more to the selection',
+    const more = mk(app.multiSelect ? t('Done adding') : t('Add more to the selection'),
       app.multiSelect ? 'check' : 'select', () => app.setMultiSelect(!app.multiSelect));
     if (app.multiSelect) more.classList.add('on');
     bar.appendChild(more);
@@ -185,14 +186,14 @@ export function updateSelectionBar(app) {
 
   const grouped = app.selectedGroups().size > 0;
   if (grouped && app.selectedGroups().size === 1) {
-    bar.appendChild(mk('Name this group', 'text', () => app.command('edit.nameGroup')));
+    bar.appendChild(mk(t('Name this group'), 'text', () => app.command('edit.nameGroup')));
   }
-  if (grouped) bar.appendChild(mk('Ungroup (Ctrl+Shift+G)', 'ungroup', () => app.command('edit.ungroup')));
-  else if (sel.length > 1) bar.appendChild(mk('Group (Ctrl+G)', 'group', () => app.command('edit.group')));
-  bar.appendChild(mk('Duplicate (Ctrl+D)', 'duplicate', () => app.command('edit.duplicate')));
-  bar.appendChild(mk('Bring to front', 'front', () => app.command('order.front')));
-  bar.appendChild(mk(sel.every((o) => o.locked) ? 'Unlock' : 'Lock', sel.every((o) => o.locked) ? 'unlock' : 'lock', () => app.command('edit.lock')));
-  bar.appendChild(mk('Delete (Del)', 'trash', () => app.command('edit.delete')));
+  if (grouped) bar.appendChild(mk(t('Ungroup (Ctrl+Shift+G)'), 'ungroup', () => app.command('edit.ungroup')));
+  else if (sel.length > 1) bar.appendChild(mk(t('Group (Ctrl+G)'), 'group', () => app.command('edit.group')));
+  bar.appendChild(mk(t('Duplicate (Ctrl+D)'), 'duplicate', () => app.command('edit.duplicate')));
+  bar.appendChild(mk(t('Bring to front'), 'front', () => app.command('order.front')));
+  bar.appendChild(mk(sel.every((o) => o.locked) ? t('Unlock') : t('Lock'), sel.every((o) => o.locked) ? 'unlock' : 'lock', () => app.command('edit.lock')));
+  bar.appendChild(mk(t('Delete (Del)'), 'trash', () => app.command('edit.delete')));
 
   appendMoreActions(app, bar);
 
@@ -203,7 +204,7 @@ function appendMoreActions(app, bar) {
   // Android still needs this route when a mouse changes the primary pointer.
   if (document.documentElement?.dataset.platform !== 'android'
       && !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)) return;
-  const button = h('button', { title: 'More actions', html: icon('more', 17) });
+  const button = h('button', { title: t('More actions'), html: icon('more', 17) });
   button.addEventListener('click', () => {
     const r = bar.getBoundingClientRect();
     // This button acts on the selection, not an object behind the toolbar.
@@ -248,12 +249,12 @@ function openColorPopover(app, anchor, type, sel) {
     });
     grid.appendChild(b);
   }
-  const body = h('div', {}, h('h4', {}, type === 'shape' ? 'Outline' : 'Colour'), grid);
+  const body = h('div', {}, h('h4', {}, type === 'shape' ? t('Outline') : t('Colour')), grid);
 
   if (type === 'shape') {
     const fills = h('div', { class: 'swatches' });
     for (const c of SHAPE_FILLS) {
-      const b = h('button', { class: 'sw', title: c === 'none' ? 'No fill' : c });
+      const b = h('button', { class: 'sw', title: c === 'none' ? t('No fill') : c });
       b.style.background = c === 'none' ? 'repeating-linear-gradient(45deg,#fff,#fff 4px,#ddd 4px,#ddd 8px)' : c;
       b.addEventListener('click', () => {
         app.store.updateMany(sel.map((o) => o.id), { fill: c }, 'fill');
@@ -261,7 +262,7 @@ function openColorPopover(app, anchor, type, sel) {
       });
       fills.appendChild(b);
     }
-    body.appendChild(h('h4', { style: 'margin-top:12px' }, 'Fill'));
+    body.appendChild(h('h4', { style: 'margin-top:12px' }, t('Fill')));
     body.appendChild(fills);
   }
   openPopover(anchor, body, { key: 'selcolor' });

@@ -5,19 +5,20 @@ import { uid } from './core/util.js';
 import { boundsOf } from './core/store.js';
 import { openPdf } from './importers/pdf.js';
 import { choosePages } from './ui/pagepicker.js';
+import { t } from './i18n.js';
 
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
 const DOC_EXT = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'odt', 'odp', 'rtf', 'txt', 'xlsx', 'xls'];
 
 export const FILTERS = {
-  image: [{ name: 'Images', extensions: IMAGE_EXT }],
+  image: [{ name: t('Images'), extensions: IMAGE_EXT }],
   document: [
-    { name: 'Documents', extensions: DOC_EXT },
+    { name: t('Documents'), extensions: DOC_EXT },
     { name: 'PDF', extensions: ['pdf'] },
     { name: 'Word', extensions: ['docx', 'doc', 'rtf', 'odt'] },
     { name: 'PowerPoint', extensions: ['pptx', 'ppt', 'odp'] }
   ],
-  any: [{ name: 'All supported', extensions: [...IMAGE_EXT, ...DOC_EXT] }]
+  any: [{ name: t('All supported'), extensions: [...IMAGE_EXT, ...DOC_EXT] }]
 };
 
 const bytesToDataUrl = (buf, mime) => new Promise((res) => {
@@ -79,17 +80,18 @@ export function clipboardFileName(type) {
 function reportRejected(app, rejected) {
   if (!rejected.length) return;
   const names = rejected.slice(0, 3).join(', ');
-  const more = rejected.length > 3 ? ` and ${rejected.length - 3} more` : '';
   app.toast(rejected.length === 1
-    ? `${names} is not the image it claims to be — skipped`
-    : `${rejected.length} files are not the images they claim to be — skipped: ${names}${more}`, 'help', 4200);
+    ? t('{name} is not the image it claims to be — skipped', { name: names })
+    : rejected.length > 3
+      ? t('{n} files are not the images they claim to be — skipped: {names} and {more} more', { n: rejected.length, names, more: rejected.length - 3 })
+      : t('{n} files are not the images they claim to be — skipped: {names}', { n: rejected.length, names }), 'help', 4200);
 }
 
 function measure(dataUrl) {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => res({ w: img.naturalWidth || 800, h: img.naturalHeight || 600 });
-    img.onerror = () => rej(new Error('Could not read image'));
+    img.onerror = () => rej(new Error(t('Could not read image')));
     img.src = dataUrl;
   });
 }
@@ -221,16 +223,16 @@ async function makeImageObject(app, dataUrl, name, index = 0, at) {
  */
 export async function insertDocument(app, filePath, opts = {}) {
   const name = filePath.split(/[\\/]/).pop();
-  const progress = app.showProgress(`Importing ${name}`, 'Converting document…');
+  const progress = app.showProgress(t('Importing {name}', { name }), t('Converting document…'));
   let doc = null;
   try {
     const res = await window.board.importToPdf(filePath);
-    if (!res.ok) { progress.close(); app.toast(res.error || 'Import failed'); return null; }
+    if (!res.ok) { progress.close(); app.toast(res.error || t('Import failed')); return null; }
 
-    progress.update(0.2, res.engine === 'libreoffice' ? 'Converted with LibreOffice — reading pages…' : 'Reading pages…');
+    progress.update(0.2, res.engine === 'libreoffice' ? t('Converted with LibreOffice — reading pages…') : t('Reading pages…'));
     doc = await openPdf(res.data);
     const total = doc.numPages;
-    if (!total) { progress.close(); app.toast('No pages found in that document'); return null; }
+    if (!total) { progress.close(); app.toast(t('No pages found in that document')); return null; }
     progress.close();
 
     let pages = opts.pages || null;
@@ -240,7 +242,7 @@ export async function insertDocument(app, filePath, opts = {}) {
       if (total === 1) { pages = [1]; layout = layout || 'row'; }
       else {
         const choice = await choosePages(app, { name, count: total, thumb: (n) => doc.thumb(n) });
-        if (!choice) { await doc.destroy(); app.toast('Import cancelled'); return null; }
+        if (!choice) { await doc.destroy(); app.toast(t('Import cancelled')); return null; }
         pages = choice.pages;
         layout = choice.layout;
         opts = { ...opts, quality: choice.quality };
@@ -248,10 +250,12 @@ export async function insertDocument(app, filePath, opts = {}) {
     }
     layout = layout || (pages.length > 6 ? 'grid' : 'row');
 
-    const render = app.showProgress(`Importing ${name}`, `Rendering ${pages.length} page${pages.length === 1 ? '' : 's'}…`);
+    const render = app.showProgress(t('Importing {name}', { name }), pages.length === 1
+      ? t('Rendering {n} page…', { n: pages.length })
+      : t('Rendering {n} pages…', { n: pages.length }));
     const rendered = [];
     for (let i = 0; i < pages.length; i++) {
-      render.update((i + 1) / pages.length, `Rendering page ${pages[i]} (${i + 1} of ${pages.length})…`);
+      render.update((i + 1) / pages.length, t('Rendering page {page} ({n} of {total})…', { page: pages[i], n: i + 1, total: pages.length }));
       rendered.push(await doc.render(pages[i], opts.quality ?? app.settings.importQuality ?? 2));
     }
     await doc.destroy();
@@ -266,12 +270,15 @@ export async function insertDocument(app, filePath, opts = {}) {
     app.setSelection([]);                       // separate objects, not a selected clump
     if (focus >= 0) app.goToPage(focus); else app.frameObjects(objs);
     render.close();
-    app.toast(`${name}: ${objs.length} page${objs.length === 1 ? '' : 's'} added${res.engine === 'builtin' ? ' (built-in converter)' : ''}`, 'doc');
+    const n = objs.length;
+    app.toast(res.engine === 'builtin'
+      ? (n === 1 ? t('{name}: {n} page added (built-in converter)', { name, n }) : t('{name}: {n} pages added (built-in converter)', { name, n }))
+      : (n === 1 ? t('{name}: {n} page added', { name, n }) : t('{name}: {n} pages added', { name, n })), 'doc');
     return objs;
   } catch (e) {
     progress.close();
     if (doc) await doc.destroy().catch(() => {});
-    app.toast('Import failed: ' + e.message);
+    app.toast(t('Import failed: {error}', { error: e.message }));
     return null;
   }
 }
@@ -282,7 +289,7 @@ function layoutPages(app, rendered, { name, layout, multiPage }) {
     id: uid('pg'), type: 'image', kind: 'page',
     x: box.x, y: box.y, w: box.w, h: box.h,
     rotation: 0, src: p.dataUrl,
-    name, label: multiPage ? `${name} — page ${p.page}` : name,
+    name, label: multiPage ? t('{name} — page {page}', { name, page: p.page }) : name,
     docSource: name, docPage: p.page
   });
 
@@ -362,7 +369,7 @@ function fitOntoPaper(app, obj) {
 
 export async function pickAndInsertDocument(app) {
   const paths = await window.board.openDialog({
-    title: 'Insert a document',
+    title: t('Insert a document'),
     properties: ['openFile', 'multiSelections'],
     filters: FILTERS.document
   });
@@ -371,7 +378,7 @@ export async function pickAndInsertDocument(app) {
 
 export async function pickAndInsertImage(app) {
   const paths = await window.board.openDialog({
-    title: 'Insert an image',
+    title: t('Insert an image'),
     properties: ['openFile', 'multiSelections'],
     filters: FILTERS.image
   });

@@ -10,6 +10,8 @@ import { splitStroke } from './erase.js';
 import { inkCursor, inkGlyphUrl, inkGlyphHotspot } from './cursors.js';
 import { pageRects, pageIndexAt, pageIndexForBox, nearestPageIndex, offsetIntoRect, inRect } from './pages.js';
 import { Surface } from './surface.js';
+import { t, currentLanguage } from '../i18n.js';
+import { SHAPE_LABELS } from '../ui/palettes.js';
 
 const TAP_SLOP = 4;
 /*
@@ -371,13 +373,10 @@ export class Interaction {
         // explains nothing.
         if (e.pointerType === 'touch') {
           this.app.showHint('finger-pans',
-            'The <b>pen</b> draws and your <b>finger</b> moves the board — both at once. '
-            + 'Want to draw with a finger? Tap the hand on the toolbar, '
-            + 'or Settings › <b>Draw with a finger</b>.');
+            t('The <b>pen</b> draws and your <b>finger</b> moves the board — both at once. Want to draw with a finger? Tap the hand on the toolbar, or Settings › <b>Draw with a finger</b>.'));
         } else {
           this.app.showHint('mouse-pans',
-            'The <b>pen</b> draws and the <b>mouse</b> moves the canvas — both at once. '
-            + 'Drawing with a mouse instead? Settings › <b>Draw with the mouse › Always</b>.');
+            t('The <b>pen</b> draws and the <b>mouse</b> moves the canvas — both at once. Drawing with a mouse instead? Settings › <b>Draw with the mouse › Always</b>.'));
         }
         const hit = pick(this.store, wp, 8 / this.surface.cam.z);
         /*
@@ -993,7 +992,7 @@ export class Interaction {
       this.action.holdMenu = true;
       if (document.documentElement?.dataset.platform !== 'android') this.app.showContextMenu(e);
       // A hidden gesture nobody is told about is a gesture nobody uses.
-      this.app.toast(hit.locked ? 'Locked — choose Unlock to resize or move' : 'Selected — drag a handle to resize', 'check', 1400);
+      this.app.toast(hit.locked ? t('Locked — choose Unlock to resize or move') : t('Selected — drag a handle to resize'), 'check', 1400);
       this.surface.invalidate();
     }, e.pointerType === 'pen' ? PEN_HOLD_MS : HOLD_MS);
   }
@@ -1436,7 +1435,11 @@ export class Interaction {
         // the ink we just added to the frozen copy is no longer on the board
         this.surface._ink = null;
         this.app.setSelection([shape.id]);
-        this.app.toast(`Straightened into a ${r.kind} — undo (Ctrl+Z) keeps your ink`, 'shape', 3600);
+        this.app.toast(t('Straightened into a {kind} — undo (Ctrl+Z) keeps your ink', {
+          // English has always said the plain kind ("a circle"); every other
+          // language gets the shape's proper name from the picker instead
+          kind: currentLanguage() === 'en' ? r.kind : (SHAPE_LABELS[r.kind] || r.kind)
+        }), 'shape', 3600);
       }
     }
   }

@@ -1,6 +1,7 @@
 // Android keeps the same renderer contract as preload.js. Files and large
 // boards cross in bounded chunks, so imported pages never hit a message limit.
 import { generatePdfFromHtml } from './web-pdf.js';
+import { t } from '../i18n.js';
 
 const FILE_ROOT = 'https://appassets.androidplatform.net/files/';
 const CHUNK_BYTES = 96 * 1024;
@@ -28,7 +29,7 @@ export function createAndroidAdapter(native = window.GazBoardNative) {
   const file = async (token, asJson = false) => {
     if (!/^[a-f0-9]{32}$/.test(token)) throw new Error('Invalid native file reference');
     const response = await fetch(FILE_ROOT + token);
-    if (!response.ok) throw new Error('The temporary file is no longer available');
+    if (!response.ok) throw new Error(t('The temporary file is no longer available'));
     try { return await (asJson ? response.json() : response.arrayBuffer()); }
     finally { raw('blob:release', { token }).catch(() => {}); }
   };
@@ -58,7 +59,7 @@ export function createAndroidAdapter(native = window.GazBoardNative) {
       const id = String(++sequence);
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new Error('Android did not finish this operation. Please try again.'));
+        reject(new Error(t('Android did not finish this operation. Please try again.')));
       }, 360000);
       pending.set(id, { resolve, reject, timer });
       try { native.postMessage(JSON.stringify({ id, method, args, argsFile })); }

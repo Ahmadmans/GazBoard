@@ -1,5 +1,7 @@
 // Right-hand slide-in panel: templates, background, settings, boards.
 
+import { t, LANGUAGES, currentLanguage } from '../i18n.js';
+import { packFor, isInstalled, isActive, installFromFile, remove as removeFontPack, sizeLabel } from '../fontpack.js';
 import { h } from './popover.js';
 import { icon } from './icons.js';
 import { TEMPLATES, templateThumb } from '../templates.js';
@@ -63,7 +65,7 @@ export function createPanels(app) {
   /* ---------------- templates ---------------- */
   const thumbCache = new Map();
   function templates() {
-    open('templates', 'Templates', () => {
+    open('templates', t('Templates'), () => {
       const groups = new Map();
       for (const t of TEMPLATES) {
         if (!groups.has(t.group)) groups.set(t.group, []);
@@ -71,7 +73,7 @@ export function createPanels(app) {
       }
       const wrap = h('div', {});
       wrap.appendChild(h('p', { style: 'margin:0 0 14px;color:var(--text-2);font-size:13px' },
-        'Templates are added to the board — your existing content is kept. Canvas sizes only change the shape of the page.'));
+        t('Templates are added to the board — your existing content is kept. Canvas sizes only change the shape of the page.')));
       for (const [group, list] of groups) {
         const sec = h('div', { class: 'section' }, h('h5', {}, group));
         const grid = h('div', { class: 'tpl-grid' });
@@ -93,7 +95,7 @@ export function createPanels(app) {
 
   /* ---------------- background ---------------- */
   function background() {
-    open('background', 'Canvas', () => {
+    open('background', t('Canvas'), () => {
       const bg = app.store.doc.background;
       const colors = h('div', { class: 'bg-grid' });
       for (const c of BOARD_COLORS) {
@@ -169,14 +171,14 @@ export function createPanels(app) {
         });
         return b;
       };
-      sizeRow.appendChild(sizeBtn('infinite', 'Infinite', !page));
+      sizeRow.appendChild(sizeBtn('infinite', t('Infinite'), !page));
       for (const p of PAPER) {
         if (!p.w || !p.h) continue;             // "fit board" is an export choice only
         sizeRow.appendChild(sizeBtn(p.id, p.label, !!current && current.paper === p.id));
       }
 
       const orientRow = h('div', { class: 'bg-sizes' });
-      for (const o of [{ id: 'portrait', label: 'Portrait' }, { id: 'landscape', label: 'Landscape' }]) {
+      for (const o of [{ id: 'portrait', label: t('Portrait') }, { id: 'landscape', label: t('Landscape') }]) {
         const b = h('button', { class: 'btn' + (orientation === o.id ? ' primary' : ''), disabled: !page }, o.label);
         b.addEventListener('click', async () => {
           showPressed(orientRow, b);
@@ -193,17 +195,17 @@ export function createPanels(app) {
       const fitRow = h('div', { class: 'bg-sizes' });
       if (page && off.length) {
         const b = h('button', { class: 'btn primary', style: 'width:100%' },
-          off.length === 1 ? 'Fit 1 item onto the page' : `Fit ${off.length} items onto the page`);
+          off.length === 1 ? t('Fit 1 item onto the page') : t('Fit {n} items onto the page', { n: off.length }));
         b.addEventListener('click', () => { app.fitContentToPage(); rerender(); refresh(); });
         fitRow.appendChild(b);
         fitRow.appendChild(h('p', { style: 'margin:2px 0 0;font-size:12px;color:var(--text-2);line-height:1.6' },
-          'Exports cover the sheet, so anything outside it is left out.'));
+          t('Exports cover the sheet, so anything outside it is left out.')));
       }
 
       const sizeNote = h('p', { style: 'margin:8px 0 0;font-size:12px;color:var(--text-2);line-height:1.6' },
         page
-          ? 'Anything you draw outside the sheet stays where it is — it just sits off the page, and exports use the sheet.'
-          : 'The canvas has no edges. Pick a size to work on a fixed sheet instead.');
+          ? t('Anything you draw outside the sheet stays where it is — it just sits off the page, and exports use the sheet.')
+          : t('The canvas has no edges. Pick a size to work on a fixed sheet instead.'));
 
       const remembering = app.settings.rememberCanvas === true;
       const box = h('input', { type: 'checkbox' });
@@ -224,7 +226,7 @@ export function createPanels(app) {
         rerender();
       };
       box.addEventListener('change', () => setRemember(box.checked));
-      const words = h('span', { style: 'cursor:pointer' }, 'Use this canvas for new boards');
+      const words = h('span', { style: 'cursor:pointer' }, t('Use this canvas for new boards'));
       words.addEventListener('click', () => { box.checked = !box.checked; setRemember(box.checked); });
 
       const rememberRow = h('div', {},
@@ -232,16 +234,16 @@ export function createPanels(app) {
           h('label', { class: 'toggle' }, box), words),
         h('p', { style: 'margin:6px 0 0;font-size:12px;color:var(--text-2);line-height:1.6' },
           remembering
-            ? 'The size, colour and pattern you choose here are used for every NEW board. Boards you already have are left exactly as they are.'
-            : 'Every new board starts on the plain infinite canvas.')
+            ? t('The size, colour and pattern you choose here are used for every NEW board. Boards you already have are left exactly as they are.')
+            : t('Every new board starts on the plain infinite canvas.'))
       );
 
       return h('div', {},
-        h('div', { class: 'section' }, h('h5', {}, 'Canvas size'), sizeRow, orientRow, fitRow, sizeNote),
-        h('div', { class: 'section' }, h('h5', {}, 'Colour'), colors),
-        h('div', { class: 'section' }, h('h5', {}, 'Custom colour'), custom),
-        h('div', { class: 'section' }, h('h5', {}, 'Pattern'), pats),
-        h('div', { class: 'section' }, h('h5', {}, 'New boards'), rememberRow)
+        h('div', { class: 'section' }, h('h5', {}, t('Canvas size')), sizeRow, orientRow, fitRow, sizeNote),
+        h('div', { class: 'section' }, h('h5', {}, t('Colour')), colors),
+        h('div', { class: 'section' }, h('h5', {}, t('Custom colour')), custom),
+        h('div', { class: 'section' }, h('h5', {}, t('Pattern')), pats),
+        h('div', { class: 'section' }, h('h5', {}, t('New boards')), rememberRow)
       );
     });
   }
@@ -336,12 +338,12 @@ export function createPanels(app) {
      */
     const named = {
       'Windows Firewall': 'Windows Firewall',
-      'macOS firewall': 'the macOS firewall',
+      'macOS firewall': t('the macOS firewall'),
       firewalld: 'firewalld',
       ufw: 'ufw',
       nftables: 'nftables',
       iptables: 'iptables'
-    }[fw.tool] || 'the firewall';
+    }[fw.tool] || t('the firewall');
     // Only Windows can be repaired from in here, and the answer comes from the
     // main process rather than being inferred from which fields turned up.
     const canFix = fw.repairable === true;
@@ -363,32 +365,27 @@ export function createPanels(app) {
       return h('div', {},
         banner('warn',
           (fw.detail
-            ? fw.detail.charAt(0).toUpperCase() + fw.detail.slice(1) + '. '
-            : `GazBoard could not read ${named} on this computer. `)
-          + 'So it cannot say whether other machines can reach you.'),
+            ? t('{detail}. So it cannot say whether other machines can reach you.', { detail: fw.detail.charAt(0).toUpperCase() + fw.detail.slice(1) })
+            : t('GazBoard could not read {firewall} on this computer. So it cannot say whether other machines can reach you.', { firewall: named }))),
         locked ? banner('warn',
-          h('b', {}, 'What that usually looks like.'),
-          ' This computer can send boards out and can be seen by others, while boards sent TO it '
-          + 'never arrive and its own list stays empty. Going out is always allowed; coming in '
-          + 'needs a rule only an administrator can add. Until somebody adds it, share the other '
-          + 'way round - send from this computer instead of to it.') : null,
+          h('b', {}, t('What that usually looks like.')),
+          ' ' + t('This computer can send boards out and can be seen by others, while boards sent TO it never arrive and its own list stays empty. Going out is always allowed; coming in needs a rule only an administrator can add. Until somebody adds it, share the other way round - send from this computer instead of to it.')) : null,
         banner('warn',
           locked
-            ? 'The two commands that open the way are below. They need an administrator, so pass '
-              + 'them to whoever looks after this machine rather than trying them here.'
-            : 'If nobody can reach you, the commands to open the way are here.',
-          smallBtn('Show the commands', showHelp, true)),
+            ? t('The two commands that open the way are below. They need an administrator, so pass them to whoever looks after this machine rather than trying them here.')
+            : t('If nobody can reach you, the commands to open the way are here.'),
+          smallBtn(t('Show the commands'), showHelp, true)),
         programLine(fw),
-        h('div', {}, smallBtn('Check again', () => checkFirewall(host))));
+        h('div', {}, smallBtn(t('Check again'), () => checkFirewall(host))));
     }
 
     const fix = async () => {
-      app.toast('Windows will ask for permission to change the firewall', 'help', 5000);
+      app.toast(t('Windows will ask for permission to change the firewall'), 'help', 5000);
       let r = null;
       try { r = await window.board.sync.firewall.repair(); }
       catch (e) { r = { ok: false, reason: 'failed', detail: e.message }; }
       fwInfo = (r && r.after) || fwInfo;
-      if (r && r.ok) app.toast('Other computers can reach GazBoard now');
+      if (r && r.ok) app.toast(t('Other computers can reach GazBoard now'));
       else if (r && r.reason === 'cancelled') app.showFirewallHelp('cancelled', fwInfo);
       else app.showFirewallHelp('failed', fwInfo);
       if (host.isConnected) renderSync(host);
@@ -397,31 +394,25 @@ export function createPanels(app) {
     // The action offered depends on whether this machine can be changed from
     // in here. Same banner, same wording up to the last sentence.
     const actions = (verb) => canFix
-      ? [' GazBoard can do that: Windows will ask you to confirm once.',
+      ? [' ' + t('GazBoard can do that: Windows will ask you to confirm once.'),
         smallBtn(verb, fix, true),
-        smallBtn('Show me the commands instead', showHelp)]
-      : [' GazBoard will not change your firewall by itself here - it would need your password, and '
-        + 'handing that to an app to run a command you have not seen is a bad habit to teach. '
-        + 'The two lines that do it are one click away.',
-      smallBtn('Show me the commands', showHelp, true)];
+        smallBtn(t('Show me the commands instead'), showHelp)]
+      : [' ' + t('GazBoard will not change your firewall by itself here - it would need your password, and handing that to an app to run a command you have not seen is a bad habit to teach. The two lines that do it are one click away.'),
+      smallBtn(t('Show me the commands'), showHelp, true)];
 
     const kids = [];
 
     if (fw.state === 'off') {
       kids.push(banner('good', fw.tool === 'none'
-        ? 'No firewall is running on this computer, so nothing is standing between you and the other machines.'
-        : `${named.charAt(0).toUpperCase() + named.slice(1)} is switched off, so nothing is standing between `
-          + 'you and the other machines.'));
+        ? t('No firewall is running on this computer, so nothing is standing between you and the other machines.')
+        : t('{firewall} is switched off, so nothing is standing between you and the other machines.', { firewall: named.charAt(0).toUpperCase() + named.slice(1) })));
     } else if (fw.state === 'blocked') {
       kids.push(banner('bad',
-        h('b', {}, `${named.charAt(0).toUpperCase() + named.slice(1)} is blocking this.`),
+        h('b', {}, t('{firewall} is blocking this.', { firewall: named.charAt(0).toUpperCase() + named.slice(1) })),
         fw.blockAll
-          ? ' It is set to refuse every incoming connection, whatever the app - so no board can reach this '
-            + 'computer until that is changed in System Settings under Network, Firewall.'
-          : ' Somewhere along the way its "allow this app?" question was answered with no - or closed, '
-            + 'which counts as no - and it wrote a rule that turns away every board sent to this computer. '
-            + 'A block always wins over an allow, so it has to be removed rather than overruled.',
-        ...(fw.blockAll ? [] : actions('Fix it'))));
+          ? ' ' + t('It is set to refuse every incoming connection, whatever the app - so no board can reach this computer until that is changed in System Settings under Network, Firewall.')
+          : ' ' + t('Somewhere along the way its "allow this app?" question was answered with no - or closed, which counts as no - and it wrote a rule that turns away every board sent to this computer. A block always wins over an allow, so it has to be removed rather than overruled.'),
+        ...(fw.blockAll ? [] : actions(t('Fix it')))));
     } else if (fw.state === 'no-rule' && reachedByOthers) {
       /*
        * Rules say no; the network says yes. The network wins.
@@ -433,39 +424,33 @@ export function createPanels(app) {
        * panel, so this states both facts and stops short of alarming anybody.
        */
       kids.push(banner('warn',
-        h('b', {}, 'Other computers are already reaching this one.'),
-        ` GazBoard cannot find a ${named} rule naming this program, but something is clearly letting `
-        + 'them in - a rule opening the ports, or one your administrator set. Nothing needs doing '
-        + 'unless a board actually fails to arrive.',
-        smallBtn('Allow this program too', canFix ? fix : showHelp)));
+        h('b', {}, t('Other computers are already reaching this one.')),
+        ' ' + t('GazBoard cannot find a {firewall} rule naming this program, but something is clearly letting them in - a rule opening the ports, or one your administrator set. Nothing needs doing unless a board actually fails to arrive.', { firewall: named }),
+        smallBtn(t('Allow this program too'), canFix ? fix : showHelp)));
     } else if (fw.state === 'no-rule') {
       kids.push(banner('warn',
-        h('b', {}, `Nothing has been allowed through ${named} yet.`),
-        ` ${named.charAt(0).toUpperCase() + named.slice(1)} turns away incoming connections unless a rule `
-        + 'says otherwise, so other computers can probably see this one in their list and still fail to '
-        + 'send it anything.'
-        + (canFix ? ' If Windows has not asked you yet, it will the first time somebody tries. You can '
-          + 'settle it now instead.' : ''),
-        ...actions('Allow it now')));
+        h('b', {}, t('Nothing has been allowed through {firewall} yet.', { firewall: named })),
+        ' ' + t('{firewall} turns away incoming connections unless a rule says otherwise, so other computers can probably see this one in their list and still fail to send it anything.', { firewall: named.charAt(0).toUpperCase() + named.slice(1) })
+        + (canFix ? ' ' + t('If Windows has not asked you yet, it will the first time somebody tries. You can settle it now instead.') : ''),
+        ...actions(t('Allow it now'))));
     } else if (fw.state === 'allowed') {
       const good = banner('good', fw.viaPorts
-        ? `${named.charAt(0).toUpperCase() + named.slice(1)} is letting other computers reach GazBoard `
-          + `through ports ${fw.ports.boards} and ${fw.ports.discovery}`
-          + (fw.portRules && fw.portRules.length ? ` — “${fw.portRules[0]}”.` : '.')
-          + ' That is a rule about the ports rather than about this program, which works just as well.'
-        : `${named.charAt(0).toUpperCase() + named.slice(1)} is letting other computers reach GazBoard`
-          + (canFix ? ' on your private and work networks.' : '.'));
+        ? (fw.portRules && fw.portRules.length
+          ? t('{firewall} is letting other computers reach GazBoard through ports {boards} and {discovery} — “{rule}”. That is a rule about the ports rather than about this program, which works just as well.', { firewall: named.charAt(0).toUpperCase() + named.slice(1), boards: fw.ports.boards, discovery: fw.ports.discovery, rule: fw.portRules[0] })
+          : t('{firewall} is letting other computers reach GazBoard through ports {boards} and {discovery}. That is a rule about the ports rather than about this program, which works just as well.', { firewall: named.charAt(0).toUpperCase() + named.slice(1), boards: fw.ports.boards, discovery: fw.ports.discovery }))
+        : (canFix
+          ? t('{firewall} is letting other computers reach GazBoard on your private and work networks.', { firewall: named.charAt(0).toUpperCase() + named.slice(1) })
+          : t('{firewall} is letting other computers reach GazBoard.', { firewall: named.charAt(0).toUpperCase() + named.slice(1) })));
       if (canFix && fw.ours > 0 && !fw.viaPorts) {
         good.appendChild(h('div', {},
-          smallBtn('Remove that permission', async () => {
-            if (!await app.confirm('Remove the firewall permission?',
-              'Other computers will stop being able to send you boards until it is allowed again. '
-              + 'Windows will ask you to confirm.', 'Remove it')) return;
+          smallBtn(t('Remove that permission'), async () => {
+            if (!await app.confirm(t('Remove the firewall permission?'),
+              t('Other computers will stop being able to send you boards until it is allowed again. Windows will ask you to confirm.'), t('Remove it'))) return;
             let r = null;
             try { r = await window.board.sync.firewall.remove(); }
             catch { r = { ok: false }; }
             fwInfo = (r && r.after) || null;
-            app.toast(r && r.ok ? 'Firewall permission removed' : 'Nothing was changed', r && r.ok ? 'check' : 'help');
+            app.toast(r && r.ok ? t('Firewall permission removed') : t('Nothing was changed'), r && r.ok ? 'check' : 'help');
             if (host.isConnected) renderSync(host);
           })));
       }
@@ -477,14 +462,12 @@ export function createPanels(app) {
     // does nothing at all. Plenty of university wifi is filed that way.
     if (fw.publicOnly) {
       kids.push(banner('warn',
-        h('b', {}, 'Windows has this network marked as Public.'),
-        ' GazBoard only ever asks to be reachable on private and work networks, never on a public one - '
-        + 'a café or an airport is not somewhere to leave a door open. Nobody will be able to reach you '
-        + 'here until this network is marked private, in Windows Settings under Network & internet.'));
+        h('b', {}, t('Windows has this network marked as Public.')),
+        ' ' + t('GazBoard only ever asks to be reachable on private and work networks, never on a public one - a café or an airport is not somewhere to leave a door open. Nobody will be able to reach you here until this network is marked private, in Windows Settings under Network & internet.')));
     }
 
     kids.push(programLine(fw));
-    kids.push(h('div', {}, smallBtn('Check again', () => checkFirewall(host))));
+    kids.push(h('div', {}, smallBtn(t('Check again'), () => checkFirewall(host))));
     return h('div', {}, ...kids);
   }
 
@@ -502,7 +485,7 @@ export function createPanels(app) {
     if (!fw.program) return null;
     return h('div', {
       style: 'font-size:11px;color:var(--text-2);margin-top:8px;word-break:break-all;opacity:.85'
-    }, 'This is about ' + fw.program);
+    }, t('This is about {program}', { program: fw.program }));
   }
 
   /** Called from the app when the device list or the service state changes. */
@@ -527,10 +510,10 @@ export function createPanels(app) {
       const why = (st && st.error) || app.syncStartError;
       if (why) {
         host.appendChild(banner('bad',
-          h('b', {}, 'Sharing could not start.'), ' ' + why,
-          smallBtn('Try again', async () => { await app.startSync(); renderSync(host); }, true)));
+          h('b', {}, t('Sharing could not start.')), ' ' + why,
+          smallBtn(t('Try again'), async () => { await app.startSync(); renderSync(host); }, true)));
       } else {
-        host.appendChild(dim('Starting…'));
+        host.appendChild(dim(t('Starting…')));
       }
       return;
     }
@@ -541,18 +524,18 @@ export function createPanels(app) {
     // or disappears and would eat what you were halfway through typing.
     host.appendChild(h('div', { style: 'display:flex;gap:8px;align-items:flex-start' },
       h('div', { style: 'flex:1;min-width:0' },
-        dim(`Others see this computer as “${st.deviceName}”. Listening on port ${st.port}.`)),
+        dim(t('Others see this computer as “{name}”. Listening on port {port}.', { name: st.deviceName, port: st.port }))),
       h('button', {
         class: 'btn', style: 'padding:3px 9px;font-size:12px;flex:none',
         onclick: async () => {
-          const name = await app.promptText('Name this computer',
-            'This is the name other people pick from when they send you a board.',
-            { value: st.deviceName, confirmLabel: 'Rename' });
+          const name = await app.promptText(t('Name this computer'),
+            t('This is the name other people pick from when they send you a board.'),
+            { value: st.deviceName, confirmLabel: t('Rename') });
           if (!name) return;
           await window.board.sync.setName(name);
           renderSync(host);
         }
-      }, 'Rename')));
+      }, t('Rename'))));
 
     /*
      * This computer's address, spelled out.
@@ -578,10 +561,8 @@ export function createPanels(app) {
           + 'border:1px solid var(--stroke)'
       }, h('div', { style: 'font-size:12px;color:var(--text-2);line-height:1.6' },
         many
-          ? 'This computer\u2019s addresses. If it never turns up in someone\u2019s list, they can add '
-            + 'it by hand with one of these - whichever is the network you are both on.'
-          : 'This computer\u2019s address. If it never turns up in someone\u2019s list, they can add it '
-            + 'by hand with this.'));
+          ? t('This computer\u2019s addresses. If it never turns up in someone\u2019s list, they can add it by hand with one of these - whichever is the network you are both on.')
+          : t('This computer\u2019s address. If it never turns up in someone\u2019s list, they can add it by hand with this.')));
 
       for (const a of addrs) {
         box.appendChild(h('div', { style: 'display:flex;align-items:center;gap:9px;margin-top:7px' },
@@ -597,10 +578,8 @@ export function createPanels(app) {
           // listed last and labelled rather than left to be picked by mistake.
           a.selfAssigned ? h('span', {
             style: 'font-size:11px;color:var(--text-2);opacity:.85',
-            title: 'This computer gave itself this address because the network did not '
-              + 'answer. It only works over a direct cable between two computers - try '
-              + 'the other address first.'
-          }, 'direct cable only') : null,
+            title: t('This computer gave itself this address because the network did not answer. It only works over a direct cable between two computers - try the other address first.')
+          }, t('direct cable only')) : null,
           h('button', {
             class: 'btn',
             style: 'padding:2px 9px;font-size:11.5px;margin-left:auto;flex:none',
@@ -610,12 +589,12 @@ export function createPanels(app) {
               // off a screen onto another machine is how they get it wrong.
               try {
                 await navigator.clipboard.writeText(a.address);
-                app.toast('Address copied - ' + a.address, 'check', 3000);
+                app.toast(t('Address copied - {address}', { address: a.address }), 'check', 3000);
               } catch {
-                app.toast('Could not copy. The address is ' + a.address, 'help', 6000);
+                app.toast(t('Could not copy. The address is {address}', { address: a.address }), 'help', 6000);
               }
             }
-          }, 'Copy')));
+          }, t('Copy'))));
       }
       host.appendChild(box);
     }
@@ -630,9 +609,7 @@ export function createPanels(app) {
       host.appendChild(h('div', {
         style: 'font-size:12px;line-height:1.6;margin-top:6px;padding:8px 10px;border-radius:6px;'
           + 'background:rgba(255,185,0,.12);border:1px solid rgba(255,185,0,.4)'
-      }, `Something else is using port ${st.discoveryPort || 53319}, so this computer cannot announce `
-        + 'itself and will not appear in anyone else\'s list - nor they in yours. Handing boards across '
-        + 'still works: use "Add a computer by address" below, on both machines.'));
+      }, t('Something else is using port {port}, so this computer cannot announce itself and will not appear in anyone else\'s list - nor they in yours. Handing boards across still works: use "Add a computer by address" below, on both machines.', { port: st.discoveryPort || 53319 })));
     }
     if (st.unusualPort) {
       // Somebody else has the usual port - almost always a second copy of
@@ -641,9 +618,7 @@ export function createPanels(app) {
       host.appendChild(h('div', {
         style: 'font-size:12px;line-height:1.6;margin-top:6px;padding:8px 10px;border-radius:6px;'
           + 'background:rgba(255,185,0,.12);border:1px solid rgba(255,185,0,.4)'
-      }, `Something else is using port ${st.expectedPort}, so this is on ${st.port} instead - most likely `
-        + 'another copy of GazBoard already running. Other computers can still find this one in their list, '
-        + 'but adding it by address will not work until that copy is closed.'));
+      }, t('Something else is using port {expected}, so this is on {port} instead - most likely another copy of GazBoard already running. Other computers can still find this one in their list, but adding it by address will not work until that copy is closed.', { expected: st.expectedPort, port: st.port })));
     }
 
     // Asked once, the first time this block is drawn with sharing running.
@@ -661,18 +636,16 @@ export function createPanels(app) {
     const visible = new Set(seen.map((p) => p.deviceId));
     const away = (st.paired || []).filter((r) => !visible.has(r.deviceId));
 
-    host.appendChild(h('h5', { style: 'margin:16px 0 8px' }, 'Computers on this network'));
+    host.appendChild(h('h5', { style: 'margin:16px 0 8px' }, t('Computers on this network')));
 
     if (!seen.length) {
-      host.appendChild(dim('Nothing found yet. The other computer needs GazBoard open with sharing switched '
-        + 'on, on the same network. If it never appears, a firewall is blocking the announcement - you can still '
-        + 'add it by its address below.'));
+      host.appendChild(dim(t('Nothing found yet. The other computer needs GazBoard open with sharing switched on, on the same network. If it never appears, a firewall is blocking the announcement - you can still add it by its address below.')));
     }
 
     for (const p of seen) host.appendChild(deviceRow(p, host));
 
     if (away.length) {
-      host.appendChild(h('h5', { style: 'margin:16px 0 8px' }, 'Paired, but not showing up right now'));
+      host.appendChild(h('h5', { style: 'margin:16px 0 8px' }, t('Paired, but not showing up right now')));
       for (const r of away) host.appendChild(deviceRow(awayRow(r), host));
       // ...and see whether any of them is actually there. One that answers
       // appears in the live list above on the next redraw.
@@ -682,17 +655,14 @@ export function createPanels(app) {
     host.appendChild(h('button', {
       class: 'btn primary', style: 'width:100%;margin-top:14px',
       onclick: () => app.showPairingCode()
-    }, 'Show my pairing code'));
+    }, t('Show my pairing code')));
 
     host.appendChild(h('button', {
       class: 'btn', style: 'width:100%;margin-top:8px',
       onclick: async () => {
-        const addr = await app.promptText('Add a computer by address',
-          'Type the address the other computer shows under its own name - four numbers with dots, '
-          + 'like 192.168.0.243. Use this when it never turns up in the list by itself. '
-          + 'If the only address it shows starts with 169.254, that one reaches it over a direct '
-          + 'cable between the two computers and nowhere else.',
-          { placeholder: '192.168.0.243', confirmLabel: 'Look for it' });
+        const addr = await app.promptText(t('Add a computer by address'),
+          t('Type the address the other computer shows under its own name - four numbers with dots, like 192.168.0.243. Use this when it never turns up in the list by itself. If the only address it shows starts with 169.254, that one reaches it over a direct cable between the two computers and nowhere else.'),
+          { placeholder: '192.168.0.243', confirmLabel: t('Look for it') });
         if (!addr) return;
         /*
          * An address starting 169.254 is one the other computer gave ITSELF
@@ -708,21 +678,17 @@ export function createPanels(app) {
         const r = await window.board.sync.addByAddress(addr);
         if (r && r.ok && r.peer) {
           if (selfAssigned) {
-            app.toast('Found ' + r.peer.name + ' - but that address only works over a direct cable '
-              + 'between these two computers. Over the ordinary network it will not. If sharing '
-              + 'stops working later, ask for its other address.', 'help', 11000);
-          } else app.toast('Found ' + r.peer.name);
+            app.toast(t('Found {name} - but that address only works over a direct cable between these two computers. Over the ordinary network it will not. If sharing stops working later, ask for its other address.', { name: r.peer.name }), 'help', 11000);
+          } else app.toast(t('Found {name}', { name: r.peer.name }));
           renderSync(host);
         } else if (selfAssigned) {
-          app.toast('Nothing answered at that address. Addresses starting 169.254 are ones a '
-            + 'computer gives itself when the network does not answer, and only reach it over a '
-            + 'direct cable - ask that computer for the other address its sharing panel shows.',
+          app.toast(t('Nothing answered at that address. Addresses starting 169.254 are ones a computer gives itself when the network does not answer, and only reach it over a direct cable - ask that computer for the other address its sharing panel shows.'),
             'help', 11000);
         } else {
-          app.toast('Nothing answered at that address: ' + ((r && r.error) || 'no answer'), 'help', 7000);
+          app.toast(t('Nothing answered at that address: {error}', { error: (r && r.error) || t('no answer') }), 'help', 7000);
         }
       }
-    }, 'Add a computer by address…'));
+    }, t('Add a computer by address…')));
 
     const temporary = (st.paired || []).filter((r) => !r.remember);
     if (temporary.length) {
@@ -730,11 +696,13 @@ export function createPanels(app) {
         class: 'btn', style: 'width:100%;margin-top:8px',
         onclick: async () => {
           const n = await window.board.sync.endSession();
-          app.toast(n === 1 ? 'Forgot one computer' : 'Forgot ' + n + ' computers');
+          app.toast(n === 1 ? t('Forgot one computer') : t('Forgot {n} computers', { n }));
           renderSync(host);
         }
-      }, `End this session (forget ${temporary.length} temporary pairing${temporary.length === 1 ? '' : 's'})`));
-      host.appendChild(dim('Closing GazBoard does this by itself.'));
+      }, temporary.length === 1
+        ? t('End this session (forget {n} temporary pairing)', { n: temporary.length })
+        : t('End this session (forget {n} temporary pairings)', { n: temporary.length })));
+      host.appendChild(dim(t('Closing GazBoard does this by itself.')));
     }
   }
 
@@ -768,10 +736,10 @@ export function createPanels(app) {
 
   function deviceRow(p, host) {
     const line = [];
-    if (p.address) line.push(p.address + (p.lastKnown ? ' (last seen here)' : ''));
-    line.push(p.paired ? 'paired' : 'not paired yet');
+    if (p.address) line.push(p.lastKnown ? t('{address} (last seen here)', { address: p.address }) : p.address);
+    line.push(p.paired ? t('paired') : t('not paired yet'));
     if (p.paired && p.fingerprint) line.push(p.fingerprint);
-    if (p.paired && p.remember === false) line.push('just for now');
+    if (p.paired && p.remember === false) line.push(t('just for now'));
 
     const actions = h('div', { style: 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap' });
 
@@ -779,23 +747,23 @@ export function createPanels(app) {
       actions.appendChild(h('button', {
         class: 'btn primary', style: 'padding:4px 10px;font-size:12.5px',
         onclick: async () => {
-          const code = await app.promptText('Pair with ' + p.name,
-            'That computer shows a pairing code under Settings › Share on this network. Type it here.',
-            { placeholder: 'ABCD-2345', uppercase: true, confirmLabel: 'Pair' });
+          const code = await app.promptText(t('Pair with {name}', { name: p.name }),
+            t('That computer shows a pairing code under Settings › Share on this network. Type it here.'),
+            { placeholder: 'ABCD-2345', uppercase: true, confirmLabel: t('Pair') });
           if (!code) return;
           const r = await window.board.sync.pairWith(p, code);
           if (r && r.ok) {
-            app.toast('Paired with ' + (r.device.name || p.name) + ' · ' + r.device.fingerprint, 'check', 6000);
+            app.toast(t('Paired with {name} · {fingerprint}', { name: r.device.name || p.name, fingerprint: r.device.fingerprint }), 'check', 6000);
             renderSync(host);
-          } else app.toast(('' + ((r && r.error) || 'pairing failed')), 'help', 7000);
+          } else app.toast(('' + ((r && r.error) || t('pairing failed'))), 'help', 7000);
         }
-      }, 'Pair…'));
+      }, t('Pair…')));
     } else {
       if (!p.offline) {
         const sendBtn = h('button', {
           class: 'btn primary', style: 'padding:4px 10px;font-size:12.5px',
           onclick: () => app.sendCurrentBoardTo(p)
-        }, 'Send this board');
+        }, t('Send this board'));
         actions.appendChild(sendBtn);
         /*
          * Ask, quietly, whether they still have us.
@@ -816,7 +784,7 @@ export function createPanels(app) {
               sendBtn.remove();
               actions.insertBefore(h('span', {
                 style: 'font-size:12px;color:var(--text-2);align-self:center'
-              }, 'has forgotten this computer - pair again'), actions.firstChild);
+              }, t('has forgotten this computer - pair again')), actions.firstChild);
               if (host && host.isConnected) setTimeout(() => renderSync(host), 1200);
             })
             .catch(() => {});
@@ -825,9 +793,8 @@ export function createPanels(app) {
       actions.appendChild(h('button', {
         class: 'btn', style: 'padding:4px 10px;font-size:12.5px',
         onclick: async () => {
-          if (!await app.confirm('Forget ' + p.name + '?',
-            'Both computers stop being paired, and either of you has to pair again before a board '
-            + 'can go either way.', 'Forget it')) return;
+          if (!await app.confirm(t('Forget {name}?', { name: p.name }),
+            t('Both computers stop being paired, and either of you has to pair again before a board can go either way.'), t('Forget it'))) return;
           const r = await window.board.sync.unpair(p.deviceId);
           /*
            * Whether the other machine heard about it is worth saying.
@@ -838,20 +805,19 @@ export function createPanels(app) {
            * somebody who was not told that would reasonably think it had failed.
            */
           app.toast(r && r.told
-            ? p.name + ' has been told, and you are unpaired on both'
-            : 'Forgotten here. ' + p.name + ' was not reachable, so it will find out '
-              + 'the next time it tries to send you something', r && r.told ? 'check' : 'help',
+            ? t('{name} has been told, and you are unpaired on both', { name: p.name })
+            : t('Forgotten here. {name} was not reachable, so it will find out the next time it tries to send you something', { name: p.name }), r && r.told ? 'check' : 'help',
           r && r.told ? 3000 : 7000);
           renderSync(host);
         }
-      }, 'Forget'));
+      }, t('Forget')));
     }
 
     return h('div', {
       style: 'border:1px solid var(--stroke);border-radius:8px;padding:10px 12px;margin-bottom:8px'
         + (p.offline ? ';opacity:.65' : '')
     },
-    h('div', { style: 'font-size:13.5px;font-weight:600;overflow-wrap:anywhere' }, p.name || 'Unknown device'),
+    h('div', { style: 'font-size:13.5px;font-weight:600;overflow-wrap:anywhere' }, p.name || t('Unknown device')),
     dim(line.join(' · ')),
     actions);
   }
@@ -872,7 +838,7 @@ export function createPanels(app) {
    * Out here it opens when it is wanted and Settings opens at once.
    */
   function sharing() {
-    open('sharing', 'Share on this network', () => {
+    open('sharing', t('Share on this network'), () => {
       const s = app.settings;
       const row = (label, control, hint) => h('div', { style: 'margin-bottom:16px' },
         h('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:12px' },
@@ -906,16 +872,15 @@ export function createPanels(app) {
 
       if (!(window.board && window.board.sync)) {
         return h('div', {}, h('div', { class: 'section' },
-          h('h5', {}, 'Not in this version'),
+          h('h5', {}, t('Not in this version')),
           h('div', { style: 'font-size:12.5px;color:var(--text-2);line-height:1.6' },
-            'Handing boards straight to another computer is in the desktop app. '
-            + 'In a browser there is no way to listen for one.')));
+            t('Handing boards straight to another computer is in the desktop app. In a browser there is no way to listen for one.'))));
       }
 
       return h('div', {}, h('div', { class: 'section' },
 
-          h('h5', {}, 'Share on this network'),
-          row('Share boards on this network', mkToggle(() => s.sync === true, async (v) => {
+          h('h5', {}, t('Share on this network')),
+          row(t('Share boards on this network'), mkToggle(() => s.sync === true, async (v) => {
             s.sync = v;
             if (v) {
               // A switch that stays on after the thing behind it failed to
@@ -923,7 +888,7 @@ export function createPanels(app) {
               const up = await app.startSync();
               if (!up) { s.sync = false; app.saveSettings(); }
             } else {
-              try { await window.board.sync.stop(); app.toast('Sharing switched off'); }
+              try { await window.board.sync.stop(); app.toast(t('Sharing switched off')); }
               catch { /* it was not running anyway */ }
               app.syncStartError = null;
             }
@@ -931,26 +896,17 @@ export function createPanels(app) {
           }),
             // "Windows may ask once" was here, on all three platforms. The
             // firewall banner below names the real one; this stays neutral.
-            'Off unless you switch it on. When it is on, this computer says hello to other GazBoards on the '
-            + 'same network so you can hand a board straight across - no account, no internet, nothing leaves the '
-            + 'room. Your computer may ask once whether to allow it through the firewall; say yes for private '
-            + 'networks or nobody will be able to reach you. Nothing is ever saved without you being asked first.'),
-          row('Sound when a board starts arriving', mkToggle(() => s.arrivalSound !== false,
+            t('Off unless you switch it on. When it is on, this computer says hello to other GazBoards on the same network so you can hand a board straight across - no account, no internet, nothing leaves the room. Your computer may ask once whether to allow it through the firewall; say yes for private networks or nobody will be able to reach you. Nothing is ever saved without you being asked first.')),
+          row(t('Sound when a board starts arriving'), mkToggle(() => s.arrivalSound !== false,
             (v) => { s.arrivalSound = v; if (v) app.playArrivalChime(); }),
-            'Two soft notes and a moment of highlight on the top bar the instant a board '
-            + 'starts coming in - so the "accept this board?" question is expected rather than '
-            + 'a surprise over the sentence you were writing.'),
-          row('When a board arrives', mkChoice(
-            [[true, 'Open it'], [false, 'Just file it']],
+            t('Two soft notes and a moment of highlight on the top bar the instant a board starts coming in - so the "accept this board?" question is expected rather than a surprise over the sentence you were writing.')),
+          row(t('When a board arrives'), mkChoice(
+            [[true, t('Open it')], [false, t('Just file it')]],
             () => s.syncOpenOnArrival !== false,
             (v) => { s.syncOpenOnArrival = v; app.saveSettings(); rerender(); }
           ), s.syncOpenOnArrival !== false
-            ? 'Once you accept a board it opens straight away, which is what you want between your own '
-              + 'machines. If several arrive at once only the last one opens - the rest are filed, so you '
-              + 'are not watching boards flash past.'
-            : 'Accepted boards are filed in My boards and you carry on with what you were doing. Right for '
-              + 'a class handing work in. The one exception is replacing a board you have open: that always '
-              + 'reloads, or you would be looking at the copy it just replaced.'),
+            ? t('Once you accept a board it opens straight away, which is what you want between your own machines. If several arrive at once only the last one opens - the rest are filed, so you are not watching boards flash past.')
+            : t('Accepted boards are filed in My boards and you carry on with what you were doing. Right for a class handing work in. The one exception is replacing a board you have open: that always reloads, or you would be looking at the copy it just replaced.')),
           s.sync ? syncBlock() : null
       ),
       /*
@@ -965,22 +921,109 @@ export function createPanels(app) {
        * there was nothing to click.
        */
       h('div', { class: 'section' },
-        h('h5', {}, 'Still not working?'),
+        h('h5', {}, t('Still not working?')),
         h('div', { style: 'font-size:12.5px;color:var(--text-2);line-height:1.6;margin-bottom:10px' },
-          'GazBoard reads the firewall rules on this computer, which is not the same as another '
-          + 'computer proving it can get in - so it can say all is well when it is not. These are the '
-          + 'commands that open the way, written for this computer\u2019s own system, and they do no '
-          + 'harm if the way is already open.'),
+          t('GazBoard reads the firewall rules on this computer, which is not the same as another computer proving it can get in - so it can say all is well when it is not. These are the commands that open the way, written for this computer\u2019s own system, and they do no harm if the way is already open.')),
         (() => {
-          const b = h('button', { class: 'btn', style: 'width:100%' }, 'Show the firewall commands');
+          const b = h('button', { class: 'btn', style: 'width:100%' }, t('Show the firewall commands'));
           b.addEventListener('click', () => app.showFirewallHelp('manual'));
           return b;
         })()));
     });
   }
 
+  /**
+   * The language list. Each name is written in its own language, so someone
+   * who cannot read the one on screen can still find theirs.
+   *
+   * Changing it reloads the window: every label in the app is built once, in
+   * one language, and building them all again is exactly what a reload does.
+   * The board is saved first, so nothing is lost on the way.
+   */
+  function languagePicker() {
+    const sel = h('select', { class: 'lang-select', 'aria-label': t('Language') });
+    const now = app.settings.language || 'auto';
+    const opts = [['auto', t('Same as this device')], ...LANGUAGES.map((l) => [l.code, l.name])];
+    for (const [code, name] of opts) {
+      const o = h('option', { value: code }, name);
+      if (code === now) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', async () => {
+      app.settings.language = sel.value;
+      app.saveSettings();
+      try { await app.persist(); } catch { /* the reload still switches the language */ }
+      location.reload();
+    });
+    return sel;
+  }
+
+  /**
+   * The optional Chinese font, for someone using the app in Chinese. Three
+   * states: not here (download it, or add a copy got another way), arriving
+   * (a percentage), installed (remove it). See fontpack.js.
+   */
+  function fontPackRow() {
+    const pack = packFor(currentLanguage());
+    if (!pack) return null;
+    const host = h('div', { class: 'fontpack', style: 'margin:-6px 0 16px' });
+    /*
+     * Drawn straight away from what is already known - a font in use is a
+     * font that is installed - and then checked against the device's own
+     * storage, which can take a moment to answer. Waiting for that answer
+     * before drawing anything left the row empty for a beat on a busy
+     * machine, and made it look as if there was nothing to offer.
+     */
+    const fill = async () => {
+      draw(isActive(pack.id));
+      const have = await isInstalled(pack.id);
+      if (have !== isActive(pack.id)) draw(have);
+    };
+    const draw = (have) => {
+      host.innerHTML = '';
+      const note = h('div', { style: 'font-size:12px;color:var(--text-2);margin-bottom:6px' },
+        have
+          ? t('The Chinese font is installed on this device, so Chinese on a board looks the same everywhere. It works offline.')
+          : t('Optional: download the Chinese font once ({size}) so Chinese on a board looks the same on every device. Until then your system font is used.', { size: sizeLabel(pack) }));
+      host.appendChild(note);
+      const btns = h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' });
+      const mk = (label, cls, fn) => {
+        const b = h('button', { class: 'btn' + (cls ? ' ' + cls : '') }, label);
+        b.style.cssText += 'padding:4px 10px;font-size:12.5px';
+        b.addEventListener('click', () => fn(b));
+        btns.appendChild(b);
+        return b;
+      };
+      if (have) {
+        mk(t('Remove the Chinese font'), 'fp-remove', async () => { await removeFontPack(pack.id); fill(); });
+      } else {
+        mk(t('Download ({size})', { size: sizeLabel(pack) }), 'primary fp-download', async (b) => {
+          b.disabled = true;
+          const r = await app.fetchFontPack(pack.id, (got, total) => {
+            b.textContent = t('Downloading… {pct}%', { pct: Math.min(100, Math.round(got / total * 100)) });
+          });
+          if (!r.ok) b.disabled = false;
+          fill();
+        });
+        const picker = h('input', { type: 'file', accept: '.woff2', style: 'display:none' });
+        picker.addEventListener('change', async () => {
+          const f = picker.files && picker.files[0];
+          if (!f) return;
+          const r = await installFromFile(pack.id, f);
+          app.toast(r.ok ? t('Chinese font installed — it works offline from now on') : r.error, r.ok ? 'check' : 'help', 6000);
+          fill();
+        });
+        btns.appendChild(picker);
+        mk(t('Add a font file…'), 'fp-file', () => picker.click());
+      }
+      host.appendChild(btns);
+    };
+    fill();
+    return host;
+  }
+
   function settings() {
-    open('settings', 'Settings', () => {
+    open('settings', t('Settings'), () => {
       const s = app.settings;
       const row = (label, control, hint) => h('div', { style: 'margin-bottom:16px' },
         h('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:12px' },
@@ -1019,111 +1062,107 @@ export function createPanels(app) {
       window.board.info().then((i) => {
         const platformLines = i.electron
           ? `Electron ${i.electron} · Chromium ${i.chrome}<br>` +
-            `Office conversion: <b>${i.libreoffice ? 'LibreOffice detected' : 'built-in converter'}</b><br>` +
+            t('Office conversion: <b>{how}</b>', { how: i.libreoffice ? t('LibreOffice detected') : t('built-in converter') }) + '<br>' +
             (i.sofficePath ? `<code style="font-size:11px">${i.sofficePath}</code><br>` : '') +
-            `Boards folder: <code style="font-size:11px">${i.userData}</code>`
+            t('Boards folder: <code style="font-size:11px">{path}</code>', { path: i.userData })
           : i.isAndroid
           ? `Android · WebView ${i.chrome}<br>` +
-            `Office conversion: <b>built-in converter</b><br>` +
-            `Boards storage: <code style="font-size:11px">${i.userData}</code>`
-          : `Runtime: <b>Web / Progressive Web App</b> · ${i.pwa ? 'Standalone App' : 'Browser'}<br>` +
-            `Boards storage: <code style="font-size:11px">${i.userData}</code>`;
+            t('Office conversion: <b>{how}</b>', { how: t('built-in converter') }) + '<br>' +
+            t('Boards storage: <code style="font-size:11px">{path}</code>', { path: i.userData })
+          : t('Runtime: <b>Web / Progressive Web App</b> · {mode}', { mode: i.pwa ? t('Standalone App') : t('Browser') }) + '<br>' +
+            t('Boards storage: <code style="font-size:11px">{path}</code>', { path: i.userData });
 
-        info.innerHTML = `<b style="color:var(--text)">GazBoard ${i.version}</b> · by <b style="color:var(--accent)">theBoringCodes</b><br>` +
+        info.innerHTML = t('{app} · by {maker}', { app: `<b style="color:var(--text)">GazBoard ${i.version}</b>`, maker: '<b style="color:var(--accent)">theBoringCodes</b>' }) + '<br>' +
           `MD. Fakhruddin Gazzali · <a href="mailto:fahim9778@gmail.com" target="_blank" style="color:var(--accent)">fahim9778@gmail.com</a><br>` +
-          `Co-created with <span style="color:#e81123">&hearts;</span> by Claude Cowork &amp; GPT Sol, Astra<br>` +
+          t('Co-created with {heart} by {makers}', { heart: '<span style="color:#e81123">&hearts;</span>', makers: 'Claude Cowork &amp; GPT Sol, Astra' }) + '<br>' +
           platformLines;
       });
 
       return h('div', {},
         h('div', { class: 'section' },
-          h('h5', {}, 'Appearance'),
-          row('Theme',
-            mkChoice([['system', 'System'], ['light', 'Light'], ['dark', 'Dark']],
+          h('h5', {}, t('Appearance')),
+          row(t('Language'), languagePicker(),
+            t('The words on the menus, buttons and messages. What you write on a board is yours and stays as it is.')),
+          fontPackRow(),
+          row(t('Theme'),
+            mkChoice([['system', t('System')], ['light', t('Light')], ['dark', t('Dark')]],
               () => s.theme || 'system',
               (v) => { s.theme = v; app.saveSettings(); rerender(); }),
-            'System follows whatever your computer or phone is set to, and changes with it. '
-            + 'Light and Dark override that. Exports and printing are always on white paper, '
-            + 'whichever you pick, so a board you share looks the same to everyone.'),
+            t('System follows whatever your computer or phone is set to, and changes with it. Light and Dark override that. Exports and printing are always on white paper, whichever you pick, so a board you share looks the same to everyone.')),
         ),
         h('div', { class: 'section' },
-          h('h5', {}, 'Inking'),
-          row('Straighten shapes I draw', mkToggle(() => s.inkToShape, (v) => (s.inkToShape = v)),
-            'Off by default: ink is kept exactly as you drew it. Switch on and a hand-drawn circle, box or arrow snaps to a clean shape when you lift the pen — one undo returns your ink.'),
-          row('Pressure sensitivity', mkToggle(() => s.pressure, (v) => (s.pressure = v)),
-            'Vary ink width with how hard you press - within a stroke, not just between strokes. '
-            + 'Works with a graphics tablet, a Surface pen or an S Pen; a mouse or a finger reports '
-            + 'no pressure and draws at one width.'),
-          row('Pen side button rubs out', mkToggle(() => s.penButtonErases !== false,
+          h('h5', {}, t('Inking')),
+          row(t('Straighten shapes I draw'), mkToggle(() => s.inkToShape, (v) => (s.inkToShape = v)),
+            t('Off by default: ink is kept exactly as you drew it. Switch on and a hand-drawn circle, box or arrow snaps to a clean shape when you lift the pen — one undo returns your ink.')),
+          row(t('Pressure sensitivity'), mkToggle(() => s.pressure, (v) => (s.pressure = v)),
+            t('Vary ink width with how hard you press - within a stroke, not just between strokes. Works with a graphics tablet, a Surface pen or an S Pen; a mouse or a finger reports no pressure and draws at one width.')),
+          row(t('Pen side button rubs out'), mkToggle(() => s.penButtonErases !== false,
             (v) => (s.penButtonErases = v)),
-            'Hold the button on the side of your stylus while you draw and it erases instead, the way '
-            + 'it does in Samsung\u2019s own apps. Turning a pen over to use its blunt end always '
-            + 'erases and is not affected by this. Switch off if you would rather that button opened '
-            + 'the right-click menu.'),
-          row('Draw with the mouse', mkChoice(
-            [['auto', 'Auto'], ['yes', 'Always'], ['no', 'Never']],
+            t('Hold the button on the side of your stylus while you draw and it erases instead, the way it does in Samsung\u2019s own apps. Turning a pen over to use its blunt end always erases and is not affected by this. Switch off if you would rather that button opened the right-click menu.')),
+          row(t('Draw with the mouse'), mkChoice(
+            [['auto', t('Auto')], ['yes', t('Always')], ['no', t('Never')]],
             () => s.inkWithMouse,
             (v) => { s.inkWithMouse = v; app.saveSettings(); rerender(); }
           ), s.inkWithMouse === 'auto'
             ? (app.penSeenThisSession
-              ? 'A stylus has been used since the app started, so the mouse pans the canvas instead of inking. It draws again next time you open GazBoard.'
-              : 'The mouse draws until a stylus is used, then it pans instead — only for this session.')
+              ? t('A stylus has been used since the app started, so the mouse pans the canvas instead of inking. It draws again next time you open GazBoard.')
+              : t('The mouse draws until a stylus is used, then it pans instead — only for this session.'))
             : s.inkWithMouse === 'yes'
-              ? 'The mouse always inks, like a stylus. Pan with space and drag, the middle button, right-drag, or the pan tool. Choose this if you draw with a mouse and have no pen.'
-              : 'Never (default): the pen inks and the mouse moves the canvas and drags objects — both at the same time, whichever tool is chosen.'),
-          row('Draw with a finger', mkChoice(
-            [['auto', 'Auto'], ['yes', 'Always'], ['no', 'Never']],
+              ? t('The mouse always inks, like a stylus. Pan with space and drag, the middle button, right-drag, or the pan tool. Choose this if you draw with a mouse and have no pen.')
+              : t('Never (default): the pen inks and the mouse moves the canvas and drags objects — both at the same time, whichever tool is chosen.')),
+          row(t('Draw with a finger'), mkChoice(
+            [['auto', t('Auto')], ['yes', t('Always')], ['no', t('Never')]],
             () => s.inkWithFinger || 'auto',
             (v) => { s.inkWithFinger = v; app.saveSettings(); rerender(); }
           ), (s.inkWithFinger || 'auto') === 'auto'
             ? (app.penSeenThisSession
-              ? 'A pen has been used since the app started, so one finger moves the board and the pen draws. Your finger draws again next time you open GazBoard without a pen.'
-              : 'No pen has touched the screen, so your finger draws and two fingers move the board. The moment a pen is used they swap over \u2014 only for this session.')
+              ? t('A pen has been used since the app started, so one finger moves the board and the pen draws. Your finger draws again next time you open GazBoard without a pen.')
+              : t('No pen has touched the screen, so your finger draws and two fingers move the board. The moment a pen is used they swap over \u2014 only for this session.'))
             : (s.inkWithFinger === 'yes'
-              ? 'Your finger always draws. Move the board with two fingers, or with the hand tool.'
-              : 'One finger always moves the board and never draws \u2014 tap to select, hold to pick something up. Choose this if you always write with a pen and keep resting a hand on the screen.')),
-          row('Pointer while inking', mkChoice(
-            [['nib', 'Pen nib'], ['arrow', 'Arrow'], ['crosshair', 'Crosshair']],
+              ? t('Your finger always draws. Move the board with two fingers, or with the hand tool.')
+              : t('One finger always moves the board and never draws \u2014 tap to select, hold to pick something up. Choose this if you always write with a pen and keep resting a hand on the screen.'))),
+          row(t('Pointer while inking'), mkChoice(
+            [['nib', t('Pen nib')], ['arrow', t('Arrow')], ['crosshair', t('Crosshair')]],
             () => s.inkPointer || 'nib',
             (v) => { s.inkPointer = v; app.saveSettings(); app.interaction.inkPointer = null;
                      app.surface.invalidate(); rerender(); }
           ), (s.inkPointer || 'nib') === 'nib'
-            ? 'A pen tip in the colour you are drawing with, painted onto the board itself so it stays put for the whole stroke — Windows hides the ordinary pointer while a stylus is touching the screen.'
+            ? t('A pen tip in the colour you are drawing with, painted onto the board itself so it stays put for the whole stroke — Windows hides the ordinary pointer while a stylus is touching the screen.')
             : (s.inkPointer === 'arrow'
-              ? 'The ordinary mouse pointer, the way most whiteboards do it. On a tablet it will disappear while the pen is down; that is Windows, not GazBoard.'
-              : 'A crosshair for placing a mark exactly. Same caveat as the arrow on a tablet.')),
+              ? t('The ordinary mouse pointer, the way most whiteboards do it. On a tablet it will disappear while the pen is down; that is Windows, not GazBoard.')
+              : t('A crosshair for placing a mark exactly. Same caveat as the arrow on a tablet.'))),
           // Only worth offering where a finger can actually draw. On a
           // mouse-only desktop this switch would do nothing at all, and a
           // setting that does nothing is worse than no setting.
           (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
-            ? row('Show the nib when drawing with a finger',
+            ? row(t('Show the nib when drawing with a finger'),
                 mkToggle(() => s.nibOnTouch === true, (v) => { s.nibOnTouch = v;
                   app.interaction.hideInkPointer(); }),
-                'Off (default): drawing with a finger shows no pen nib, because your fingertip is already on the spot and the nib only hides under your hand. A stylus or a mouse on this machine still gets one. Switch on if you are on a Surface or another touchscreen PC and want the nib under your finger too.')
+                t('Off (default): drawing with a finger shows no pen nib, because your fingertip is already on the spot and the nib only hides under your hand. A stylus or a mouse on this machine still gets one. Switch on if you are on a Surface or another touchscreen PC and want the nib under your finger too.'))
             : null,
-          row('Ruler snapping', mkToggle(() => app.ruler.snap, (v) => (app.ruler.snap = v)))
+          row(t('Ruler snapping'), mkToggle(() => app.ruler.snap, (v) => (app.ruler.snap = v)))
         ),
         h('div', { class: 'section' },
-          h('h5', {}, 'Canvas'),
-          row('Mouse wheel zooms', mkToggle(() => s.wheelZoom, (v) => (s.wheelZoom = v)), 'Off: wheel and trackpad pan, Ctrl+wheel zooms.'),
-          row('Auto-pan at the edges', mkToggle(() => s.edgePan, (v) => (s.edgePan = v)),
-            'While drawing or dragging, running the pointer into the edge of the window scrolls the canvas. A mouse button held down during a pen stroke drags the canvas too.'),
-          row('Return to select after drawing', mkToggle(() => s.returnToSelect, (v) => (s.returnToSelect = v))),
-          row('Outline grouped objects', mkToggle(() => s.showGroupOutlines !== false, (v) => {
+          h('h5', {}, t('Canvas')),
+          row(t('Mouse wheel zooms'), mkToggle(() => s.wheelZoom, (v) => (s.wheelZoom = v)), t('Off: wheel and trackpad pan, Ctrl+wheel zooms.')),
+          row(t('Auto-pan at the edges'), mkToggle(() => s.edgePan, (v) => (s.edgePan = v)),
+            t('While drawing or dragging, running the pointer into the edge of the window scrolls the canvas. A mouse button held down during a pen stroke drags the canvas too.')),
+          row(t('Return to select after drawing'), mkToggle(() => s.returnToSelect, (v) => (s.returnToSelect = v))),
+          row(t('Outline grouped objects'), mkToggle(() => s.showGroupOutlines !== false, (v) => {
             s.showGroupOutlines = v;
             app.saveSettings();
             app.surface.showGroupOutlines = v;
             app.surface.invalidate();
-          }), 'A faint dashed ring round each group, so a finished drawing shows which parts are tied together. The group you are touching is drawn more clearly. Locked objects always show their dotted outline.'),
-          row('Right-drag pans the canvas', mkToggle(() => s.rightDragPans !== false, (v) => (s.rightDragPans = v)),
-            'Hold the right mouse button and drag to move around — useful on a laptop with no pen and no middle button. A right click that does not move still opens the usual menu.'),
-          row('Check for updates', mkToggle(() => s.updateCheck === true, (v) => { s.updateCheck = v; app.saveSettings(); if (v) app.checkForUpdates({ force: true }); }),
-            'Asks GitHub at most twice a day whether a newer version exists, and tells you if so. Nothing is downloaded or installed automatically, and nothing about you or your boards is ever sent. Off means the app never touches the network.'),
-          row('Shortcut letters on the toolbar', mkToggle(() => s.showToolKeys !== false, (v) => (s.showToolKeys = v)),
-            'Shows the key for each tool in the corner of its button — V, P, H, E and so on — so you can switch without stopping to look them up.'),
-          row('Low-latency inking', mkToggle(() => s.lowLatencyInk, (v) => { s.lowLatencyInk = v; app.toast('Takes effect next time GazBoard opens'); }),
-            'Shaves a little lag off the pen by letting the canvas skip a buffering step. On some graphics drivers this makes the board flicker while you write or drag, especially with imported document pages on it — leave it off if you see that. Applies when the app is reopened.'),
-          row('Autosave', mkToggle(() => s.autosave, (v) => (s.autosave = v)), 'Boards are stored locally on this computer.')
+          }), t('A faint dashed ring round each group, so a finished drawing shows which parts are tied together. The group you are touching is drawn more clearly. Locked objects always show their dotted outline.')),
+          row(t('Right-drag pans the canvas'), mkToggle(() => s.rightDragPans !== false, (v) => (s.rightDragPans = v)),
+            t('Hold the right mouse button and drag to move around — useful on a laptop with no pen and no middle button. A right click that does not move still opens the usual menu.')),
+          row(t('Check for updates'), mkToggle(() => s.updateCheck === true, (v) => { s.updateCheck = v; app.saveSettings(); if (v) app.checkForUpdates({ force: true }); }),
+            t('Asks GitHub at most twice a day whether a newer version exists, and tells you if so. Nothing is downloaded or installed automatically, and nothing about you or your boards is ever sent. Off means the app never touches the network.')),
+          row(t('Shortcut letters on the toolbar'), mkToggle(() => s.showToolKeys !== false, (v) => (s.showToolKeys = v)),
+            t('Shows the key for each tool in the corner of its button — V, P, H, E and so on — so you can switch without stopping to look them up.')),
+          row(t('Low-latency inking'), mkToggle(() => s.lowLatencyInk, (v) => { s.lowLatencyInk = v; app.toast(t('Takes effect next time GazBoard opens')); }),
+            t('Shaves a little lag off the pen by letting the canvas skip a buffering step. On some graphics drivers this makes the board flicker while you write or drag, especially with imported document pages on it — leave it off if you see that. Applies when the app is reopened.')),
+          row(t('Autosave'), mkToggle(() => s.autosave, (v) => (s.autosave = v)), t('Boards are stored locally on this computer.'))
         ),
         /*
          * Back to how it shipped.
@@ -1139,35 +1178,31 @@ export function createPanels(app) {
          * nobody dares press.
          */
         h('div', { class: 'section' },
-          h('h5', {}, 'Reset to defaults'),
-          row('Put every setting back to how it shipped',
+          h('h5', {}, t('Reset to defaults')),
+          row(t('Put every setting back to how it shipped'),
             (() => {
-              const b = h('button', { class: 'btn' }, 'Reset settings');
+              const b = h('button', { class: 'btn' }, t('Reset settings'));
               b.style.cssText += 'padding:4px 12px;font-size:12.5px';
               b.addEventListener('click', async () => {
-                if (!await app.confirm('Reset every setting?',
-                  'Pens, pointers, zoom, autosave and the rest go back to how GazBoard shipped. '
-                  + 'Your boards are not touched, paired computers are kept, and sharing stays '
-                  + 'exactly as it is now.', 'Reset them')) return;
+                if (!await app.confirm(t('Reset every setting?'),
+                  t('Pens, pointers, zoom, autosave and the rest go back to how GazBoard shipped. Your boards are not touched, paired computers are kept, and sharing stays exactly as it is now.'), t('Reset them'))) return;
                 app.resetSettings();
-                app.toast('Settings are back to how they shipped');
+                app.toast(t('Settings are back to how they shipped'));
                 rerender();
               });
               return b;
             })(),
-            'Your boards, your paired computers and the sharing switch are left alone.'),
+            t('Your boards, your paired computers and the sharing switch are left alone.')),
           // Only the web build. An Electron window has no stale service worker
           // to get stuck behind, and offering a "hard refresh" there would be
           // a button that appears to do nothing.
-          (window.board && !window.board.sync) ? row('Reload the app from scratch',
+          (window.board && !window.board.sync) ? row(t('Reload the app from scratch'),
             (() => {
-              const b = h('button', { class: 'btn' }, 'Hard refresh');
+              const b = h('button', { class: 'btn' }, t('Hard refresh'));
               b.style.cssText += 'padding:4px 12px;font-size:12.5px';
               b.addEventListener('click', async () => {
-                if (!await app.confirm('Reload GazBoard from scratch?',
-                  'The saved copy of the app in this browser is thrown away and fetched again. '
-                  + 'Your boards are stored separately and are not affected. Save anything '
-                  + 'unsaved first.', 'Reload')) return;
+                if (!await app.confirm(t('Reload GazBoard from scratch?'),
+                  t('The saved copy of the app in this browser is thrown away and fetched again. Your boards are stored separately and are not affected. Save anything unsaved first.'), t('Reload'))) return;
                 try {
                   if (navigator.serviceWorker) {
                     const regs = await navigator.serviceWorker.getRegistrations();
@@ -1184,41 +1219,39 @@ export function createPanels(app) {
               });
               return b;
             })(),
-            'Use this when GazBoard in the browser looks out of date after an update. '
-            + 'It clears the offline copy and fetches the newest one. Boards are kept.') : null
+            t('Use this when GazBoard in the browser looks out of date after an update. It clears the offline copy and fetches the newest one. Boards are kept.')) : null
         ),
         // Sharing lives in its own panel now. It was the heaviest thing in
         // here - it reads the firewall, which shells out to PowerShell, so
         // opening Settings to change a pen colour waited on that - and it was
         // also the hardest to find, four screens down a list of switches.
         (window.board && window.board.sync) ? h('div', { class: 'section' },
-          h('h5', {}, 'Share on this network'),
+          h('h5', {}, t('Share on this network')),
           h('div', { style: 'font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px' },
-            'Handing a board to another computer in the room has its own panel now - '
-            + 'the Share button on the top bar.'),
+            t('Handing a board to another computer in the room has its own panel now - the Share button on the top bar.')),
           (() => {
-            const b = h('button', { class: 'btn primary', style: 'width:100%' }, 'Open sharing');
+            const b = h('button', { class: 'btn primary', style: 'width:100%' }, t('Open sharing'));
             b.addEventListener('click', () => sharing());
             return b;
           })()
         ) : null,
         h('div', { class: 'section' },
-          h('h5', {}, 'Board'),
-          h('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.new'); close(); } }, 'New board'),
-          h('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.open'); close(); } }, 'Open a board file…'),
-          h('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.save'); close(); } }, 'Save a copy…'),
-          h('button', { class: 'btn danger', style: 'width:100%', onclick: () => app.command('edit.clear') }, 'Clear this canvas')
+          h('h5', {}, t('Board')),
+          h('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.new'); close(); } }, t('New board')),
+          h('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.open'); close(); } }, t('Open a board file…')),
+          h('button', { class: 'btn', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.save'); close(); } }, t('Save a copy…')),
+          h('button', { class: 'btn danger', style: 'width:100%', onclick: () => app.command('edit.clear') }, t('Clear this canvas'))
         ),
-        h('div', { class: 'section' }, h('h5', {}, 'About'), info,
+        h('div', { class: 'section' }, h('h5', {}, t('About')), info,
           h('p', { style: 'font-size:12px;color:var(--text-2);margin-top:10px;line-height:1.6' },
-            'Boards save automatically on this device. Use My boards to reopen them, or Save a copy to keep a board file in a folder you choose. There is no sign-in, no account and no cloud. The one thing that ever leaves this device is a board you hand to another GazBoard yourself, over your own network, and even then it goes straight from here to there, never through anybody\'s server.'))
+            t('Boards save automatically on this device. Use My boards to reopen them, or Save a copy to keep a board file in a folder you choose. There is no sign-in, no account and no cloud. The one thing that ever leaves this device is a board you hand to another GazBoard yourself, over your own network, and even then it goes straight from here to there, never through anybody\'s server.')))
       );
     });
   }
 
   /* ---------------- boards ---------------- */
   async function boards() {
-    open('boards', 'My boards', () => h('div', { id: 'boardList' }, h('p', { style: 'color:var(--text-2)' }, 'Loading…')));
+    open('boards', t('My boards'), () => h('div', { id: 'boardList' }, h('p', { style: 'color:var(--text-2)' }, t('Loading…'))));
     const list = await window.board.boards.list();
     if (!list.some((b) => b.id === app.store.doc.id)) list.unshift({
       id: app.store.doc.id, name: app.store.doc.name, objects: app.store.count, modified: app.store.doc.modified
@@ -1226,17 +1259,19 @@ export function createPanels(app) {
     const host = document.getElementById('boardList');
     if (!host) return;
     host.innerHTML = '';
-    host.appendChild(h('button', { class: 'btn primary', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.new'); close(); } }, '+ New board'));
+    host.appendChild(h('button', { class: 'btn primary', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.new'); close(); } }, t('+ New board')));
     // Opening a .gazboard file had a keyboard shortcut and nothing to click,
     // which is no use to anyone who does not already know it is there.
-    host.appendChild(h('button', { class: 'btn', style: 'width:100%;margin-bottom:14px', onclick: () => { app.command('board.open'); close(); } }, 'Open a board file…'));
+    host.appendChild(h('button', { class: 'btn', style: 'width:100%;margin-bottom:14px', onclick: () => { app.command('board.open'); close(); } }, t('Open a board file…')));
     const chosen = new Set();
     const boxes = [];
-    const exportButton = h('button', { class: 'btn primary', disabled: true }, 'Export selected (0)');
-    const selectAll = h('input', { type: 'checkbox', 'aria-label': 'Select all boards' });
+    const exportButton = h('button', { class: 'btn primary', disabled: true }, t('Export selected (0)'));
+    const selectAll = h('input', { type: 'checkbox', 'aria-label': t('Select all boards') });
     const syncChosen = () => {
       exportButton.disabled = !chosen.size;
-      exportButton.textContent = `Export selected (${chosen.size})${chosen.size > 1 ? ' as ZIP…' : '…'}`;
+      exportButton.textContent = chosen.size > 1
+        ? t('Export selected ({n}) as ZIP…', { n: chosen.size })
+        : t('Export selected ({n})…', { n: chosen.size });
       selectAll.checked = chosen.size === list.length && !!list.length;
       selectAll.indeterminate = chosen.size > 0 && chosen.size < list.length;
     };
@@ -1250,9 +1285,9 @@ export function createPanels(app) {
       exportButton.disabled = true;
       selectAll.disabled = true;
       boxes.forEach(({ input }) => { input.disabled = true; });
-      exportButton.textContent = 'Exporting…';
+      exportButton.textContent = t('Exporting…');
       try { await exportBoards(app, ids); }
-      catch (e) { app.toast(e.message || 'Could not export the selected boards', 'help', 6000); }
+      catch (e) { app.toast(e.message || t('Could not export the selected boards'), 'help', 6000); }
       finally {
         selectAll.disabled = false;
         boxes.forEach(({ input }) => { input.disabled = false; });
@@ -1260,10 +1295,10 @@ export function createPanels(app) {
       }
     });
     host.appendChild(h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px' },
-      h('label', { style: 'display:flex;align-items:center;gap:8px;min-height:44px' }, selectAll, 'Select all'), exportButton));
+      h('label', { style: 'display:flex;align-items:center;gap:8px;min-height:44px' }, selectAll, t('Select all')), exportButton));
     host.appendChild(h('p', { style: 'font-size:12px;color:var(--text-2)' },
-      'Choose boards to export. One saves as a .gazboard file; several save together in a ZIP. Extract the ZIP to open its boards.'));
-    if (!list.length) host.appendChild(h('p', { style: 'color:var(--text-2);font-size:13px' }, 'No saved boards yet.'));
+      t('Choose boards to export. One saves as a .gazboard file; several save together in a ZIP. Extract the ZIP to open its boards.')));
+    if (!list.length) host.appendChild(h('p', { style: 'color:var(--text-2);font-size:13px' }, t('No saved boards yet.')));
 
     // Every board this app has ever saved is a plain file in one folder. Showing
     // people where, and letting them open it, is worth more than any reassurance
@@ -1272,30 +1307,36 @@ export function createPanels(app) {
       if (!document.getElementById('boardList')) return;
       if (i.electron) {
         const foot = h('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke);font-size:12px;color:var(--text-2);line-height:1.6' },
-          h('div', {}, `${list.length} board${list.length === 1 ? '' : 's'}, saved on this computer at:`),
+          h('div', {}, list.length === 1
+            ? t('{n} board, saved on this computer at:', { n: list.length })
+            : t('{n} boards, saved on this computer at:', { n: list.length })),
           h('code', { style: 'font-size:11px;display:block;margin:4px 0 8px;word-break:break-all' }, i.userData + '/boards'),
           h('button', { class: 'btn', style: 'width:100%', onclick: () => {
             if (window.board.openBoardsFolder) window.board.openBoardsFolder();
             else window.board.showItem(i.userData + '/boards');
-          } }, 'Open that folder'));
+          } }, t('Open that folder')));
         host.appendChild(foot);
       } else if (i.isAndroid) {
         const foot = h('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke);font-size:12px;color:var(--text-2);line-height:1.6' },
-          h('div', {}, `${list.length} board${list.length === 1 ? '' : 's'}, saved in GazBoard’s private storage on this Android device.`),
-          h('p', {}, 'Boards and images save automatically and reopen here. Android’s Files app cannot browse this private folder.'),
-          h('p', {}, 'Select boards above to export them with their images. Choose Downloads, Documents or another location in the Android file picker.'),
-          h('p', {}, 'Uninstalling GazBoard or clearing its app storage deletes these local boards. Export copies you want to keep; exports are separate from autosave.'),
-          h('button', { class: 'btn', style: 'width:100%', onclick: () => { app.command('board.save'); close(); } }, 'Save current board…'));
+          h('div', {}, list.length === 1
+            ? t('{n} board, saved in GazBoard’s private storage on this Android device.', { n: list.length })
+            : t('{n} boards, saved in GazBoard’s private storage on this Android device.', { n: list.length })),
+          h('p', {}, t('Boards and images save automatically and reopen here. Android’s Files app cannot browse this private folder.')),
+          h('p', {}, t('Select boards above to export them with their images. Choose Downloads, Documents or another location in the Android file picker.')),
+          h('p', {}, t('Uninstalling GazBoard or clearing its app storage deletes these local boards. Export copies you want to keep; exports are separate from autosave.')),
+          h('button', { class: 'btn', style: 'width:100%', onclick: () => { app.command('board.save'); close(); } }, t('Save current board…')));
         host.appendChild(foot);
       } else {
         const foot = h('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke);font-size:12px;color:var(--text-2);line-height:1.6' },
-          h('div', {}, `${list.length} board${list.length === 1 ? '' : 's'}, stored in browser persistence:`),
+          h('div', {}, list.length === 1
+            ? t('{n} board, stored in browser persistence:', { n: list.length })
+            : t('{n} boards, stored in browser persistence:', { n: list.length })),
           h('code', { style: 'font-size:11px;display:block;margin:4px 0 8px;word-break:break-all' }, i.userData));
         host.appendChild(foot);
       }
     });
     for (const b of list) {
-      const input = h('input', { type: 'checkbox', 'aria-label': `Export ${b.name || 'Untitled board'}` });
+      const input = h('input', { type: 'checkbox', 'aria-label': t('Export {name}', { name: b.name || t('Untitled board') }) });
       boxes.push({ input, id: b.id });
       input.addEventListener('change', () => {
         if (input.checked) chosen.add(b.id); else chosen.delete(b.id);
@@ -1304,9 +1345,11 @@ export function createPanels(app) {
       const row = h('button', { class: 'board-row', style: 'flex:1;min-width:0' },
         h('span', { html: icon('board', 20), style: 'color:var(--text-2);display:flex' }),
         h('span', { class: 'meta' },
-          h('b', {}, b.name || 'Untitled board'),
-          h('small', {}, `${b.objects} item${b.objects === 1 ? '' : 's'} · ${new Date(b.modified).toLocaleString()}`)),
-        h('span', { class: 'icon-btn', title: 'Delete', html: icon('trash', 16), onclick: async (e) => { e.stopPropagation(); if (await app.confirm('Delete board?', `"${b.name}" will be permanently removed.`, 'Delete')) { await app.deleteBoard(b.id); boards(); } } })
+          h('b', {}, b.name || t('Untitled board')),
+          h('small', {}, b.objects === 1
+            ? t('{n} item · {date}', { n: b.objects, date: new Date(b.modified).toLocaleString() })
+            : t('{n} items · {date}', { n: b.objects, date: new Date(b.modified).toLocaleString() }))),
+        h('span', { class: 'icon-btn', title: t('Delete'), html: icon('trash', 16), onclick: async (e) => { e.stopPropagation(); if (await app.confirm(t('Delete board?'), t('"{name}" will be permanently removed.', { name: b.name }), t('Delete'))) { await app.deleteBoard(b.id); boards(); } } })
       );
       row.addEventListener('click', async () => {
         const data = await window.board.boards.load(b.id);
@@ -1319,5 +1362,8 @@ export function createPanels(app) {
 
   function refresh() { app.surface.invalidate(); }
 
-  return { templates, background, settings, sharing, boards, close, syncChanged, get open() { return !!currentKey; } };
+  /** A font pack arrived or went: the Settings row redraws itself. */
+  function fontsChanged() { if (currentKey === 'settings') rerender(); }
+
+  return { templates, background, settings, sharing, boards, close, syncChanged, fontsChanged, get open() { return !!currentKey; } };
 }

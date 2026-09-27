@@ -6,6 +6,7 @@ import { hexToRgba, readableText, wrapText, fitFontSize, clamp } from './util.js
 import { inkPath, inkRuns, strokeWeight, hasPressureVariation } from './ink.js';
 
 import { fontStack } from '../ui/palettes.js';
+import { t } from '../i18n.js';
 
 export const FONT = fontStack('ui');
 export const HAND_FONT = fontStack('hand');
@@ -721,14 +722,14 @@ export function drawImage(ctx, o, onload) {
     ctx.fillStyle = '#a19f9d';
     ctx.font = `14px ${FONT}`;
     ctx.textAlign = 'center';
-    ctx.fillText('Picture not found', o.x + o.w / 2, o.y + o.h / 2);
+    ctx.fillText(t('Picture not found'), o.x + o.w / 2, o.y + o.h / 2);
   } else {
     ctx.fillStyle = '#edebe9';
     ctx.fillRect(o.x, o.y, o.w, o.h);
     ctx.fillStyle = '#a19f9d';
     ctx.font = `14px ${FONT}`;
     ctx.textAlign = 'center';
-    ctx.fillText('Loading…', o.x + o.w / 2, o.y + o.h / 2);
+    ctx.fillText(t('Loading…'), o.x + o.w / 2, o.y + o.h / 2);
   }
   if (o.kind === 'page') {
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
@@ -777,7 +778,7 @@ export function drawTable(ctx, o, hideCell = null) {
  *  Answer covers
  * =================================================================== */
 export const CURTAIN_COLOR = '#5b5fc7';
-export const CURTAIN_LABEL = 'Tap to reveal';
+export const CURTAIN_LABEL = t('Tap to reveal');
 
 /**
  * A card laid over part of the board, the way a teacher slides a sheet of
@@ -794,7 +795,18 @@ export const CURTAIN_LABEL = 'Tap to reveal';
 export function drawCurtain(ctx, o) {
   if (o.revealed) return;
   const { x, y, w, h } = o;
-  const r = Math.min(14, Math.abs(w) / 6, Math.abs(h) / 6);
+  const aw = Math.abs(w), ah = Math.abs(h);
+  /*
+   * Everything in proportion to the card itself: the corners, the stripes and
+   * the label all grow and shrink with it. They used to be fixed board sizes
+   * (a 40-unit label, 28-unit stripes), which is fine on a card made at 100%
+   * and hopeless on one made zoomed right out - that card is twenty times as
+   * many board units across, so its label came out a twentieth of the size,
+   * a speck in the middle of a big purple block. The same rule the sticky
+   * notes follow: the size of the card is where the zoom already went.
+   */
+  const unit = Math.min(aw, ah);
+  const r = unit * 0.13;
   ctx.save();
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
@@ -804,13 +816,14 @@ export function drawCurtain(ctx, o) {
   // the stripes: light, wide, and at 45 degrees so they read as a pattern
   // rather than as ruled lines somebody might try to write on
   ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.lineWidth = 10;
+  ctx.lineWidth = unit * 0.09;
+  const gap = Math.max(1e-6, unit * 0.25);
   ctx.beginPath();
-  for (let d = -h; d < w; d += 28) { ctx.moveTo(x + d, y + h); ctx.lineTo(x + d + h, y); }
+  for (let d = -ah; d < aw; d += gap) { ctx.moveTo(x + d, y + ah); ctx.lineTo(x + d + ah, y); }
   ctx.stroke();
   const label = o.label ?? CURTAIN_LABEL;
   if (label) {
-    const size = Math.max(10, Math.min(40, h * 0.3, w / (label.length * 0.62)));
+    const size = curtainLabelSize(ctx, o, label);
     ctx.font = `600 ${size}px ${FONT}`;
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.textAlign = 'center';
@@ -818,6 +831,25 @@ export function drawCurtain(ctx, o) {
     ctx.fillText(label, x + w / 2, y + h / 2);
   }
   ctx.restore();
+}
+
+/**
+ * How big the label on a cover is, in board units: 30% of the card's height,
+ * or smaller if that would not fit across 86% of its width. Measured rather
+ * than guessed, because the label is translated and "Tap to reveal" is a
+ * very different length in Bangla, Arabic and Chinese. No fixed floor or
+ * ceiling in board units - see drawCurtain() for why that was the bug.
+ */
+export function curtainLabelSize(ctx, o, label = o.label ?? CURTAIN_LABEL) {
+  const aw = Math.abs(o.w), ah = Math.abs(o.h);
+  let size = ah * 0.3;
+  if (!label || !(size > 0)) return size;
+  ctx.save();
+  ctx.font = `600 ${size}px ${FONT}`;
+  const wide = ctx.measureText(label).width;
+  ctx.restore();
+  if (wide > aw * 0.86) size *= (aw * 0.86) / wide;
+  return size;
 }
 
 /* =================================================================== *

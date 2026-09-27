@@ -12,6 +12,7 @@
 
 import { h } from './popover.js';
 import { icon } from './icons.js';
+import { t } from '../i18n.js';
 
 export const TIMER_PRESETS = [1, 3, 5, 10];   // minutes
 /** The clock goes red for the last stretch, so the room sees time running out. */
@@ -247,24 +248,24 @@ export class ClassTimer {
       b.addEventListener('click', fn);
       return b;
     };
-    const close = btn('Close the timer', 'close', () => this.close(), 'ct-close');
-    const grip = h('span', { class: 'ct-resize', title: 'Drag to make the clock bigger or smaller' });
+    const close = btn(t('Close the timer'), 'close', () => this.close(), 'ct-close');
+    const grip = h('span', { class: 'ct-resize', title: t('Drag to make the clock bigger or smaller') });
 
     if (this.picking || this.state === 'idle') {
       const body = h('div', { class: 'ct-pick' });
       if (this.active) {
         // the countdown that is still going, and the way back to it
         const now = h('div', { class: 'ct-now' },
-          h('span', { class: 'ct-now-label' }, this.state === 'paused' ? 'Paused at' : 'Still running'),
+          h('span', { class: 'ct-now-label' }, this.state === 'paused' ? t('Paused at') : t('Still running')),
           h('span', { class: 'ct-now-digits' }, formatClock(this.remaining())));
-        const keep = h('button', { class: 'ct-keep', title: 'Go back to the running timer' }, 'Keep this one');
+        const keep = h('button', { class: 'ct-keep', title: t('Go back to the running timer') }, t('Keep this one'));
         keep.addEventListener('click', () => this.keepCurrent());
         now.appendChild(keep);
         body.appendChild(now);
       }
       const row = h('div', { class: 'ct-presets' });
       for (const m of TIMER_PRESETS) {
-        const b = h('button', { class: 'ct-preset', title: `${m} minute${m > 1 ? 's' : ''}` }, `${m} min`);
+        const b = h('button', { class: 'ct-preset', title: m > 1 ? t('{m} minutes', { m }) : t('{m} minute', { m }) }, t('{m} min', { m }));
         b.dataset.minutes = String(m);
         b.addEventListener('click', () => this.start(m));
         row.appendChild(b);
@@ -272,12 +273,12 @@ export class ClassTimer {
       body.appendChild(row);
       // any length at all, typed
       const input = h('input', { class: 'ct-input', type: 'text', inputmode: 'text', spellcheck: 'false',
-        placeholder: 'or type: 7, 7:30, 90s, 1h', 'aria-label': 'Any length of time' });
-      const go = h('button', { class: 'ct-go', title: 'Start' }, 'Start');
+        placeholder: t('or type: 7, 7:30, 90s, 1h'), 'aria-label': t('Any length of time') });
+      const go = h('button', { class: 'ct-go', title: t('Start') }, t('Start'));
       const tryStart = () => {
         if (!this.startTyped(input.value)) {
           input.classList.add('ct-bad');
-          input.title = 'Try 7 (minutes), 7:30, 90s or 1h 15m';
+          input.title = t('Try 7 (minutes), 7:30, 90s or 1h 15m');
           input.focus();
         }
       };
@@ -298,7 +299,7 @@ export class ClassTimer {
       return;
     }
 
-    const digits = h('button', { class: 'ct-digits', title: this.state === 'running' ? 'Pause' : 'Carry on' },
+    const digits = h('button', { class: 'ct-digits', title: this.state === 'running' ? t('Pause') : t('Carry on') },
       formatClock(this.remaining()));
     digits.addEventListener('click', () => {
       if (this.state === 'running') this.pause();
@@ -306,10 +307,10 @@ export class ClassTimer {
     });
     el.appendChild(digits);
     const controls = h('div', { class: 'ct-controls' });
-    if (this.state === 'running') controls.appendChild(btn('Pause', 'pause', () => this.pause(), 'ct-pause'));
-    if (this.state === 'paused') controls.appendChild(btn('Carry on', 'play', () => this.resume(), 'ct-resume'));
-    controls.appendChild(btn('One more minute', 'plus', () => this.addMinute(), 'ct-more'));
-    controls.appendChild(btn('Choose another time — this one keeps running until you pick', 'timer',
+    if (this.state === 'running') controls.appendChild(btn(t('Pause'), 'pause', () => this.pause(), 'ct-pause'));
+    if (this.state === 'paused') controls.appendChild(btn(t('Carry on'), 'play', () => this.resume(), 'ct-resume'));
+    controls.appendChild(btn(t('One more minute'), 'plus', () => this.addMinute(), 'ct-more'));
+    controls.appendChild(btn(t('Choose another time — this one keeps running until you pick'), 'timer',
       () => this.chooseAnother(), 'ct-reset'));
     controls.appendChild(close);
     el.appendChild(controls);
@@ -337,12 +338,23 @@ export class ClassTimer {
         id: e.pointerId, x: e.clientX, y: e.clientY, resize, moved: false,
         box: { ...this.box }, w: el.offsetWidth
       };
-      try { el.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+      /*
+       * NOT captured here. Capturing the pointer on the card at the press
+       * makes the card the target of the click that follows - so the click
+       * never reached Start, Pause, a preset or Close, and the clock could be
+       * started by the keyboard but never stopped. The pointer is only
+       * captured once the press has turned into a drag (below), and a drag's
+       * click is swallowed anyway.
+       */
     });
     el.addEventListener('pointermove', (e) => {
       if (!drag || e.pointerId !== drag.id) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      if (!drag.moved) {
+        // now it is a drag: keep hold of the pointer even if it outruns the card
+        try { el.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+      }
       drag.moved = true;
       if (drag.resize) {
         const was = drag.w * drag.box.scale;

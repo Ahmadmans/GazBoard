@@ -12,6 +12,7 @@
 
 import { h } from './popover.js';
 import { icon } from './icons.js';
+import { t } from '../i18n.js';
 
 /** How close to the bottom edge the pointer has to come to call the tools up. */
 export const TOOLS_EDGE = 90;
@@ -24,12 +25,12 @@ export function initPresentBar(app) {
     b.dataset.present = key;
     return b;
   };
-  const prev = btn('prev', 'Previous page (Page Up)', 'back');
-  const next = btn('next', 'Next page (Page Down)', 'chevronRight');
+  const prev = btn('prev', t('Previous page (Page Up)'), 'back');
+  const next = btn('next', t('Next page (Page Down)'), 'chevronRight');
   const label = h('span', { id: 'presentLabel' });
-  const tools = btn('tools', 'Show the tools', 'pen');
-  const timer = btn('timer', 'Class timer', 'timer');
-  const exit = btn('exit', 'Stop presenting (Esc)', 'close');
+  const tools = btn('tools', t('Show the tools'), 'pen');
+  const timer = btn('timer', t('Class timer'), 'timer');
+  const exit = btn('exit', t('Stop presenting (Esc)'), 'close');
   const bar = h('div', { id: 'presentbar', hidden: true }, prev, label, next, tools, timer, exit);
   stage.appendChild(bar);
 
@@ -78,5 +79,5 @@ export function syncPresentBar(app) {
   }
   const tools = bar.querySelector('[data-present="tools"]');
   tools.classList.toggle('on', !!app.presentToolsPinned);
-  tools.title = app.presentToolsPinned ? 'Tuck the tools away' : 'Show the tools';
+  tools.title = app.presentToolsPinned ? t('Tuck the tools away') : t('Show the tools');
 }

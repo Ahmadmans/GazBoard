@@ -256,6 +256,51 @@
 }
 
 * { box-sizing: border-box; }
+/*
+ * Bangla and Arabic, for the app's own words as well as for text on a board.
+ *
+ * Not every machine has them: a Windows set up in English can show Bangla in
+ * whatever it has lying about, or in boxes. At about fifty kilobytes a weight
+ * they cost less than one screenshot, so they come with the app. Each covers
+ * only its own script (the unicode-range), so putting them at the front of a
+ * font list changes nothing for any other language.
+ *
+ * Chinese is not here on purpose. A Chinese face is five megabytes or more, so
+ * it is an optional download instead - see i18n.js.
+ */
+@font-face {
+  font-family: 'GazBoard Noto Bengali';
+  src: url('../assets/fonts/board/noto-sans-bengali-bengali-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0951-0952,U+0964-0965,U+0980-09FE,U+1CD0,U+1CD2,U+1CD5-1CD6,U+1CD8,U+1CE1,U+1CEA,U+1CED,U+1CF2,U+1CF5-1CF7,U+200C-200D,U+20B9,U+25CC,U+A8F1;
+}
+@font-face {
+  font-family: 'GazBoard Noto Bengali';
+  src: url('../assets/fonts/board/noto-sans-bengali-bengali-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0951-0952,U+0964-0965,U+0980-09FE,U+1CD0,U+1CD2,U+1CD5-1CD6,U+1CD8,U+1CE1,U+1CEA,U+1CED,U+1CF2,U+1CF5-1CF7,U+200C-200D,U+20B9,U+25CC,U+A8F1;
+}
+@font-face {
+  font-family: 'GazBoard Noto Arabic';
+  src: url('../assets/fonts/board/noto-sans-arabic-arabic-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC;
+}
+@font-face {
+  font-family: 'GazBoard Noto Arabic';
+  src: url('../assets/fonts/board/noto-sans-arabic-arabic-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC;
+}
+
 html, body {
   height: 100%;
   height: 100dvh;
@@ -265,7 +310,7 @@ html, body {
   -webkit-text-size-adjust: 100%;
 }
 body {
-  font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'GazBoard Noto Bengali', 'GazBoard Noto Arabic', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
   font-size: 14px; color: var(--text); background: var(--bg);
   -webkit-font-smoothing: antialiased; user-select: none; cursor: default;
 }
@@ -1200,4 +1245,51 @@ body.presenting.show-tools #toolbar { translate: 0 0; opacity: 1; pointer-events
 @keyframes ctPulse { 50% { opacity: .25; } }
 @media (max-width: 620px) {
   #classTimer .ct-preset { padding: 0 8px; }
+}
+
+/* =================================================================== *
+ *  Right-to-left (Arabic)
+ *
+ *  The app's frame mirrors: bars that sit on the right move to the left,
+ *  the side panel slides in from the left, arrows that mean "next" point
+ *  the way the page is read. Flex rows mirror by themselves once the page
+ *  is dir="rtl"; these are the things placed by hand.
+ *
+ *  The BOARD does not mirror. Ink, shapes and text on it are where the
+ *  person put them, and a board made in one language must look the same
+ *  opened in another - so the canvas and the text editor stay left to right.
+ * =================================================================== */
+[dir="rtl"] #c, [dir="rtl"] #editLayer, [dir="rtl"] #inkNib { direction: ltr; }
+[dir="rtl"] .menu-item, [dir="rtl"] .board-row, [dir="rtl"] .tpl { text-align: right; }
+[dir="rtl"] .menu-item .k { margin-left: 0; margin-right: auto; }
+[dir="rtl"] #classTimer .ct-keep { margin-left: 0; margin-right: auto; }
+[dir="rtl"] #zoombar { right: auto; left: 16px; }
+[dir="rtl"] #pagebar { right: auto; left: 16px; }
+[dir="rtl"] #presentbar { right: auto; left: 14px; }
+[dir="rtl"] #hints { right: auto; left: 16px; align-items: flex-start; }
+[dir="rtl"] .panel {
+  right: auto; left: 0; border-left: 0; border-right: 1px solid var(--stroke);
+  transform: translateX(-100%);
+}
+[dir="rtl"] .panel.open { transform: none; }
+/* "previous" and "next" point the way an Arabic page turns */
+[dir="rtl"] #pagebar [data-page="prev"] svg,
+[dir="rtl"] #pagebar [data-page="next"] svg,
+[dir="rtl"] #presentbar [data-present="prev"] svg,
+[dir="rtl"] #presentbar [data-present="next"] svg { transform: scaleX(-1); }
+@media (max-width: 1340px) {
+  [dir="rtl"] #toolbar { left: 252px; right: 12px; }
+}
+@media (max-width: 860px) {
+  [dir="rtl"] #toolbar { left: 8px; right: 8px; }
+  [dir="rtl"] #zoombar, [dir="rtl"] #pagebar { left: 8px; }
+}
+@media (max-width: 760px) {
+  [dir="rtl"] .panel { border-right: none; }
+}
+
+/* the language list in Settings */
+.lang-select {
+  font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; max-width: 190px;
+  border: 1px solid var(--stroke); background: var(--surface); color: var(--text);
 }

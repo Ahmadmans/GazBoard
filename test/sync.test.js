@@ -602,8 +602,9 @@ async function run() {
     // is wrong, and wrong on the machine of somebody who cannot tell you.
     const fallback = panels.slice(panels.indexOf("}[fw.tool] ||"), panels.indexOf("}[fw.tool] ||") + 60);
     check('and falls back to a generic word, never to one platform\'s product',
-      /\|\| 'the firewall'/.test(fallback)
-      && !/\|\| 'Windows Firewall'/.test(fallback) && !/\|\| 'the macOS/.test(fallback),
+      // the generic word may be wrapped for translation: t('the firewall')
+      /\|\| (t\()?'the firewall'/.test(fallback)
+      && !/\|\| (t\()?'Windows Firewall'/.test(fallback) && !/\|\| (t\()?'the macOS/.test(fallback),
       fallback.split('\n')[0]);
 
     // Windows says its own name rather than being the thing left over.

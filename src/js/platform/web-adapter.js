@@ -5,6 +5,7 @@ import * as storage from './web-storage.js';
 import * as files from './web-files.js';
 import { generatePdfFromHtml } from './web-pdf.js';
 import * as updater from './update-manager.js';
+import { t } from '../i18n.js';
 
 const APP_VERSION = '__APP_VERSION__';
 updater.setAppVersion(APP_VERSION);
@@ -45,7 +46,7 @@ export function createWebAdapter() {
         electron: null,
         chrome: chromeMatch ? chromeMatch[1] : 'Web',
         libreoffice: false,
-        userData: 'Browser Storage (IndexedDB)',
+        userData: t('Browser Storage (IndexedDB)'),
         smoke: false,
         isWeb: true,
         pwa: typeof window !== 'undefined' && (
@@ -110,10 +111,10 @@ export function createWebAdapter() {
         // For other formats in web runtime, advise user
         return {
           ok: false,
-          error: `Web runtime directly imports PDF and image files. For ${ext.toUpperCase()} documents, please export to PDF first.`
+          error: t('Web runtime directly imports PDF and image files. For {ext} documents, please export to PDF first.', { ext: ext.toUpperCase() })
         };
       } catch (e) {
-        return { ok: false, error: e.message || 'Could not import file' };
+        return { ok: false, error: e.message || t('Could not import file') };
       }
     },
 

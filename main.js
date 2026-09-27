@@ -421,73 +421,94 @@ function createWindow() {
 
 function send(channel, payload) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload); }
 
+/*
+ * The menu bar in the app's language. The words come from the same language
+ * files the window uses (src/locales), keyed by the English, so there is one
+ * translation to keep and not two.
+ */
+let menuWords = {};
+function T(s) { return menuWords[s] || s; }
+
+// Registered once, at load: a window opened again on macOS must not add a
+// second listener every time.
+ipcMain.on('app:language', (_e, code) => {
+  // A language code and nothing else: it is joined into a path below
+  if (typeof code !== 'string' || !/^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$/.test(code)) return;
+  menuWords = {};
+  if (code !== 'en') {
+    try { menuWords = JSON.parse(fs.readFileSync(path.join(__dirname, 'src', 'locales', code + '.json'), 'utf8')); }
+    catch { menuWords = {}; }
+  }
+  Menu.setApplicationMenu(buildMenu());
+});
+
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   const cmd = (id) => () => send('menu:command', id);
   const template = [
     ...(isMac ? [{ role: 'appMenu' }] : []),
     {
-      label: 'File',
+      label: T('File'),
       submenu: [
-        { label: 'New board', accelerator: 'CmdOrCtrl+N', click: cmd('board.new') },
-        { label: 'Open board…', accelerator: 'CmdOrCtrl+O', click: cmd('board.open') },
-        { label: 'Save a copy…', accelerator: 'CmdOrCtrl+S', click: cmd('board.save') },
+        { label: T('New board'), accelerator: 'CmdOrCtrl+N', click: cmd('board.new') },
+        { label: T('Open board…'), accelerator: 'CmdOrCtrl+O', click: cmd('board.open') },
+        { label: T('Save a copy…'), accelerator: 'CmdOrCtrl+S', click: cmd('board.save') },
         { type: 'separator' },
-        { label: 'Insert image…', click: cmd('insert.image') },
-        { label: 'Insert document (Word / PowerPoint / PDF)…', click: cmd('insert.document') },
-        { label: 'Insert answer cover', click: cmd('insert.curtain') },
+        { label: T('Insert image…'), click: cmd('insert.image') },
+        { label: T('Insert document (Word / PowerPoint / PDF)…'), click: cmd('insert.document') },
+        { label: T('Insert answer cover'), click: cmd('insert.curtain') },
         { type: 'separator' },
-        { label: 'Export as PNG…', click: cmd('export.png') },
-        { label: 'Export as PDF…', click: cmd('export.pdf') },
-        { label: 'Export as SVG…', click: cmd('export.svg') },
+        { label: T('Export as PNG…'), click: cmd('export.png') },
+        { label: T('Export as PDF…'), click: cmd('export.pdf') },
+        { label: T('Export as SVG…'), click: cmd('export.svg') },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' }
+        isMac ? { role: 'close', label: T('Close window') } : { role: 'quit', label: T('Quit') }
       ]
     },
     {
-      label: 'Edit',
+      label: T('Edit'),
       submenu: [
-        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: cmd('edit.undo') },
-        { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', click: cmd('edit.redo') },
+        { label: T('Undo'), accelerator: 'CmdOrCtrl+Z', click: cmd('edit.undo') },
+        { label: T('Redo'), accelerator: 'CmdOrCtrl+Shift+Z', click: cmd('edit.redo') },
         { type: 'separator' },
-        { label: 'Cut', accelerator: 'CmdOrCtrl+X', click: cmd('edit.cut') },
-        { label: 'Copy', accelerator: 'CmdOrCtrl+C', click: cmd('edit.copy') },
+        { label: T('Cut'), accelerator: 'CmdOrCtrl+X', click: cmd('edit.cut') },
+        { label: T('Copy'), accelerator: 'CmdOrCtrl+C', click: cmd('edit.copy') },
         // registerAccelerator: false shows the shortcut in the menu without
         // claiming the key. The page therefore sees Ctrl+V itself and raises
         // one ordinary paste event, so there is a single path that decides
         // what to paste rather than two racing to answer first.
-        { label: 'Paste', accelerator: 'CmdOrCtrl+V', registerAccelerator: false, click: cmd('edit.paste') },
-        { label: 'Duplicate', accelerator: 'CmdOrCtrl+D', click: cmd('edit.duplicate') },
-        { label: 'Delete', click: cmd('edit.delete') },
+        { label: T('Paste'), accelerator: 'CmdOrCtrl+V', registerAccelerator: false, click: cmd('edit.paste') },
+        { label: T('Duplicate'), accelerator: 'CmdOrCtrl+D', click: cmd('edit.duplicate') },
+        { label: T('Delete'), click: cmd('edit.delete') },
         { type: 'separator' },
-        { label: 'Select all', accelerator: 'CmdOrCtrl+A', click: cmd('edit.selectAll') },
-        { label: 'Clear canvas', click: cmd('edit.clear') }
+        { label: T('Select all'), accelerator: 'CmdOrCtrl+A', click: cmd('edit.selectAll') },
+        { label: T('Clear canvas'), click: cmd('edit.clear') }
       ]
     },
     {
-      label: 'View',
+      label: T('View'),
       submenu: [
-        { label: 'Zoom in', accelerator: 'CmdOrCtrl+=', click: cmd('view.zoomIn') },
-        { label: 'Zoom out', accelerator: 'CmdOrCtrl+-', click: cmd('view.zoomOut') },
-        { label: 'Reset zoom', accelerator: 'CmdOrCtrl+0', click: cmd('view.zoomReset') },
-        { label: 'Fit to board', accelerator: 'CmdOrCtrl+Shift+F', click: cmd('view.fit') },
+        { label: T('Zoom in'), accelerator: 'CmdOrCtrl+=', click: cmd('view.zoomIn') },
+        { label: T('Zoom out'), accelerator: 'CmdOrCtrl+-', click: cmd('view.zoomOut') },
+        { label: T('Reset zoom'), accelerator: 'CmdOrCtrl+0', click: cmd('view.zoomReset') },
+        { label: T('Fit to board'), accelerator: 'CmdOrCtrl+Shift+F', click: cmd('view.fit') },
         { type: 'separator' },
-        { label: 'Format background…', click: cmd('view.background') },
-        { label: 'Toggle ruler', accelerator: 'CmdOrCtrl+R', click: cmd('view.ruler') },
+        { label: T('Format background…'), click: cmd('view.background') },
+        { label: T('Toggle ruler'), accelerator: 'CmdOrCtrl+R', click: cmd('view.ruler') },
         { type: 'separator' },
         // F5 is shown here but handled by the page, the same way Paste is: the
         // page also has to hear it while presenting, and a menu that claimed
         // the key would stop it getting there.
-        { label: 'Present', accelerator: 'F5', registerAccelerator: false, click: cmd('view.present') },
-        { label: 'Class timer', click: cmd('timer.open') },
-        { label: 'Cover answers again', click: cmd('curtain.coverAll') },
+        { label: T('Present'), accelerator: 'F5', registerAccelerator: false, click: cmd('view.present') },
+        { label: T('Class timer'), click: cmd('timer.open') },
+        { label: T('Cover answers again'), click: cmd('curtain.coverAll') },
         { type: 'separator' },
-        { label: 'Full screen', accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' },
-        { label: 'Maximise window', click: () => { if (mainWindow) mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); } },
-        { role: 'toggleDevTools' }
+        { label: T('Full screen'), accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' },
+        { label: T('Maximise window'), click: () => { if (mainWindow) mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); } },
+        { role: 'toggleDevTools', label: T('Developer tools') }
       ]
     },
-    { label: 'Help', submenu: [ { label: 'Keyboard shortcuts', click: cmd('help.shortcuts') }, { label: 'About GazBoard', click: cmd('help.about') } ] }
+    { label: T('Help'), submenu: [ { label: T('Keyboard shortcuts'), click: cmd('help.shortcuts') }, { label: T('About GazBoard'), click: cmd('help.about') } ] }
   ];
   return Menu.buildFromTemplate(template);
 }

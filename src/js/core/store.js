@@ -9,10 +9,11 @@
 
 import { uid, unionBox } from './util.js';
 import { pagesFrom, pageRects } from './pages.js';
+import { t } from '../i18n.js';
 
 export const CLIENT_ID = uid('c');
 
-export function emptyDoc(name = 'Untitled board') {
+export function emptyDoc(name = t('Untitled board')) {
   return {
     id: uid('b'), name, schema: 2,
     created: Date.now(), modified: Date.now(),
@@ -339,7 +340,7 @@ export class Store {
   }
 
   load(data) {
-    const d = emptyDoc(data.name || 'Untitled board');
+    const d = emptyDoc(data.name || t('Untitled board'));
     d.id = data.id || d.id;
     d.created = data.created || Date.now();
     d.modified = data.modified || Date.now();
