@@ -803,7 +803,7 @@ async function run(win, app) {
   check('clicking empty canvas deselects', misc.selBefore === 1 && misc.selAfterSelect === 0);
   check('panning with an ink tool deselects too', misc.selAfterPan === 0);
   check('zooming shows a readout', misc.pillShown && /%/.test(misc.pillText), misc.pillText);
-  check('there is a handwriting font, and it is Comic Sans first',
+  check('the comic face is there, reaches for Comic Sans, and reaches the renderer',
     misc.fonts.includes('hand') && misc.comic && misc.resolved, misc.fonts.join(', '));
 
   /* ---- text comes out handwritten without anyone choosing it ---- */
@@ -859,8 +859,15 @@ async function run(win, app) {
     `${faces.upgradedText} / ${faces.upgradedNote}`);
   check('but a deliberate choice of the sans face is left alone',
     faces.chosenText === 'ui', faces.chosenText);
-  check('the handwriting face reaches for Comic Sans before anything else',
-    /^'Comic Sans MS'/.test(faces.handFace), faces.handFace);
+  /*
+   * The comic face - id 'hand', labelled Marker in the picker - is the Comic
+   * Sans look the original Whiteboard had. It leads with Comic Neue, bundled:
+   * drawn to be Comic Sans, and the same file on every device. The real Comic
+   * Sans sits straight behind it for an SVG export opened somewhere that has
+   * no copy of ours.
+   */
+  check('the comic face is the Comic Sans look, bundled first and the real one right behind',
+    /^'GazBoard Comic Neue','Comic Sans MS'/.test(faces.handFace), faces.handFace);
   check('the editor types in the face the text will commit to, not just for handwriting',
     faces.editorFace.replace(/"/g, "'").includes('Georgia'), faces.editorFace);
 
@@ -1225,29 +1232,84 @@ async function run(win, app) {
     `${pointer.startedOnEmpty}, ${pointer.panned}px`);
   check('the stylus still inks over an object', pointer.inked === 1);
 
+  /*
+   * One rule for colour, the same for every kind of object: the selection bar
+   * recolours what is selected and nothing else, and a tool's own picker on
+   * the toolbar sets what comes next.
+   *
+   * It used to be that recolouring from the selection bar ALSO became the
+   * colour of the next object of that kind. Fixing the colour of one word
+   * left every later word that colour; recolouring one old stroke swapped
+   * the ink of the pen in your hand. Everything here goes through the real
+   * buttons - the bar's colour button, then a swatch in the popover it opens -
+   * because that is where the old rule lived, not in a function a test could
+   * call around.
+   */
   const colours = await js(`
-    const a = window.app;
+    const a = window.app, s = a.settings;
     const { updateSelectionBar } = await import('app://board/js/ui/contextmenu.js');
-    a.newBoard(true);
+    const { openToolPopover } = await import('app://board/js/ui/toolbar.js');
+    const { closePopover } = await import('app://board/js/ui/popover.js');
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    a.newBoard(true); a.textEditor.cancel(); a.setTool('select');
 
-    // recolour a shape from the selection bar, then make a new one
-    a.store.add({ id: 'c1', type: 'shape', kind: 'rect', x: 0, y: 0, w: 100, h: 100,
-                  rotation: 0, stroke: '#201f1e', fill: 'none', lineWidth: 3 });
-    a.setSelection(['c1']);
-    a.rememberColor('shape', 'stroke', '#e81123');
-    a.store.updateMany(['c1'], { stroke: '#e81123' });
-    const shapeDefault = a.settings.shapeStroke;
+    const defaults = () => ({ note: s.noteColor, text: s.textColor, outline: s.shapeStroke,
+                              fill: s.shapeFill, pen: s.penColor, pens: JSON.stringify(s.pens || {}) });
+    const before = defaults();
 
-    a.rememberColor('note', 'color', '#a4e7a0');
-    const noteDefault = a.settings.noteColor;
-    a.rememberColor('text', 'color', '#0078d4');
-    const textDefault = a.settings.textColor;
-    a.rememberColor('stroke', 'color', '#8764b8');
-    const penDefault = a.settings.penColor;
+    // select one object, open the bar's colour popover, press a swatch that
+    // is neither its current colour nor the default - so a change is visible
+    const recolour = async (obj, key, section = 0) => {
+      a.store.add(obj); a.setSelection([obj.id]); updateSelectionBar(a);
+      await sleep(40);
+      const btn = document.querySelector('#ctxbar .colour-btn');
+      if (!btn) return { picked: null, now: null, why: 'no colour button on the bar' };
+      btn.click(); await sleep(20);
+      const grids = document.querySelectorAll('.pop .swatches');
+      const grid = grids[section];
+      if (!grid) return { picked: null, now: null, why: 'popover had ' + grids.length + ' swatch row(s)' };
+      // a swatch's title is its colour, except the fill row's "none", which is
+      // titled No fill for people - so read the value, not the label
+      const valueOf = (b) => (b.title === 'No fill' ? 'none' : b.title);
+      const avoid = new Set([obj[key], before.note, before.text, before.outline, before.fill, before.pen]);
+      const sw = [...grid.querySelectorAll('.sw')].find((b) => b.title && !avoid.has(valueOf(b)));
+      if (!sw) return { picked: null, now: null, why: 'no distinct swatch to press' };
+      sw.click(); await sleep(20);
+      return { picked: valueOf(sw), now: a.store.get(obj.id)[key] };
+    };
 
-    // a brand new note picks up the remembered colour
-    a.addNoteAt({ x: 400, y: 400 }); a.textEditor.cancel();
-    const newNote = a.store.objects.filter(o => o.type === 'note').pop();
+    const r = {};
+    r.note = await recolour({ id: 'cn', type: 'note', x: 0, y: 0, w: 200, h: 200, color: before.note,
+                              text: 'n', rotation: 0, align: 'center', font: 'hand' }, 'color');
+    r.text = await recolour({ id: 'ct', type: 'text', x: 0, y: 300, w: 300, h: 50, color: before.text, text: 'word',
+                              fontSize: 32, rotation: 0, align: 'left', valign: 'top', font: 'hand', background: 'none' }, 'color');
+    r.outline = await recolour({ id: 'cs', type: 'shape', kind: 'rect', x: 400, y: 0, w: 100, h: 100,
+                                 rotation: 0, stroke: before.outline, fill: 'none', lineWidth: 3 }, 'stroke');
+    a.setSelection([]); a.store.remove(['cs']);
+    r.fill = await recolour({ id: 'cf', type: 'shape', kind: 'rect', x: 400, y: 200, w: 100, h: 100,
+                              rotation: 0, stroke: before.outline, fill: 'none', lineWidth: 3 }, 'fill', 1);
+    r.stroke = await recolour({ id: 'ck', type: 'stroke', tool: 'pen', color: before.pen, width: 4, effect: 'none',
+                                hue: 0, opacity: 1, rotation: 0, bbox: { x: 600, y: 0, w: 60, h: 60 },
+                                points: [{ x: 600, y: 0, p: .5 }, { x: 660, y: 60, p: .5 }] }, 'color');
+    a.setSelection([]); closePopover();
+    r.after = defaults();
+    r.before = before;
+
+    // and the next new note still comes out in the untouched default
+    a.addNoteAt({ x: 900, y: 400 }); a.textEditor.cancel();
+    r.nextNote = a.store.objects.filter((o) => o.type === 'note').pop()?.color;
+
+    // the tool's own picker is still where "what comes next" is set
+    const anchor = document.querySelector('#toolbar button') || document.body;
+    openToolPopover(a, anchor, 'note'); await sleep(20);
+    const toolSw = [...document.querySelectorAll('.pop .swatches .sw')].find((b) => b.title && b.title !== before.note);
+    r.toolPicked = toolSw ? toolSw.title : null;
+    if (toolSw) toolSw.click();
+    await sleep(20); closePopover();
+    r.toolSetDefault = s.noteColor;
+    a.addNoteAt({ x: 1200, y: 400 }); a.textEditor.cancel();
+    r.toolNextNote = a.store.objects.filter((o) => o.type === 'note').pop()?.color;
+    s.noteColor = before.note; a.saveSettings(); a.syncUI();
 
     // an image offers no colour control
     a.store.clear();
@@ -1255,10 +1317,10 @@ async function run(win, app) {
       src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' });
     a.setSelection(['img']);
     updateSelectionBar(a);
-    await new Promise(r => setTimeout(r, 40));
+    await sleep(40);
     const bar = document.getElementById('ctxbar');
-    const imageButtons = bar.querySelectorAll('button').length;
-    const imageHasSwatch = !!bar.querySelector('.colour-btn');
+    r.imageButtons = bar.querySelectorAll('button').length;
+    r.imageHasSwatch = !!bar.querySelector('.colour-btn');
 
     // a shape does still offer one
     a.store.clear();
@@ -1266,18 +1328,28 @@ async function run(win, app) {
                   rotation: 0, stroke: '#e81123', fill: 'none', lineWidth: 3 });
     a.setSelection(['c2']);
     updateSelectionBar(a);
-    await new Promise(r => setTimeout(r, 40));
-    const shapeHasSwatch = !!document.getElementById('ctxbar').querySelector('.colour-btn');
+    await sleep(40);
+    r.shapeHasSwatch = !!document.getElementById('ctxbar').querySelector('.colour-btn');
 
     a.store.clear(); a.setSelection([]);
-    return { shapeDefault, noteDefault, textDefault, penDefault,
-             newNoteColor: newNote ? newNote.color : null, imageButtons, imageHasSwatch, shapeHasSwatch };
+    return r;
   `);
-  check('a colour picked from the selection bar becomes the default',
-    colours.shapeDefault === '#e81123' && colours.noteDefault === '#a4e7a0' &&
-    colours.textDefault === '#0078d4' && colours.penDefault === '#8764b8',
-    JSON.stringify({ shape: colours.shapeDefault, note: colours.noteDefault }));
-  check('a new object uses the remembered colour', colours.newNoteColor === '#a4e7a0', colours.newNoteColor);
+  const recoloured = ['note', 'text', 'outline', 'fill', 'stroke']
+    .map((k) => `${k}: ${colours[k].picked ? `${colours[k].picked} -> object is ${colours[k].now}` : colours[k].why}`);
+  check('the selection bar recolours the selected note, text, shape and stroke',
+    ['note', 'text', 'outline', 'fill', 'stroke'].every((k) => colours[k].picked && colours[k].now === colours[k].picked),
+    recoloured.join('; '));
+  const changed = Object.keys(colours.before).filter((k) => colours.before[k] !== colours.after[k]);
+  check('and leaves every default alone, the pen in your hand included',
+    changed.length === 0,
+    `defaults that moved: ${changed.map((k) => `${k} ${colours.before[k]} -> ${colours.after[k]}`).join(', ') || 'none'} — ` +
+    `recolouring one word used to make every later word that colour, and one old stroke used to swap your pen's ink`);
+  check('so the next new note still comes out in the default colour',
+    colours.nextNote === colours.before.note,
+    `next note ${colours.nextNote}, default ${colours.before.note}`);
+  check('while the tool’s own picker still sets what comes next',
+    !!colours.toolPicked && colours.toolSetDefault === colours.toolPicked && colours.toolNextNote === colours.toolPicked,
+    `picked ${colours.toolPicked} in the note tool's popover; default became ${colours.toolSetDefault}, next note ${colours.toolNextNote}`);
   check('images offer no colour control', colours.imageHasSwatch === false && colours.imageButtons > 0,
     colours.imageButtons + ' buttons, swatch ' + colours.imageHasSwatch);
   check('shapes still offer one', colours.shapeHasSwatch === true);
@@ -5536,19 +5608,22 @@ async function run(win, app) {
       const d = a.surface.ctx.getImageData(Math.round(x * a.surface.dpr), Math.round(y * a.surface.dpr), 1, 1).data;
       return '#' + [d[0], d[1], d[2]].map((n) => n.toString(16).padStart(2, '0')).join('');
     };
+    // A spot of bare board. Not the centre: an empty board says Happy Inking
+    // there now, and this is asking what colour the board is, not the words.
+    const bare = () => px(a.surface.width / 2, a.surface.height / 4);
 
     // --- light ------------------------------------------------------------
     a.settings.theme = 'light'; a.saveSettings();
     a.surface.repaintAll(); a.surface.draw();
     r.lightRoot = document.documentElement.dataset.theme || '(none)';
-    r.lightBoardPixel = px(a.surface.width / 2, a.surface.height / 2);
+    r.lightBoardPixel = bare();
     r.lightInk = inkPaint('#201f1e');
 
     // --- dark -------------------------------------------------------------
     a.settings.theme = 'dark'; a.saveSettings();
     a.surface.repaintAll(); a.surface.draw();
     r.darkRoot = document.documentElement.dataset.theme || '(none)';
-    r.darkBoardPixel = px(a.surface.width / 2, a.surface.height / 2);
+    r.darkBoardPixel = bare();
     r.darkFlagSet = isDarkBoard();
     r.chromeWentDark = getComputedStyle(document.body).getPropertyValue('--bg').trim();
 
@@ -6124,7 +6199,7 @@ async function run(win, app) {
   const penMemory = await js(`
     const a = window.app;
     const { PENS, penById, heldPenId } = await import('app://board/js/ui/palettes.js');
-    const { choosePen } = await import('app://board/js/ui/toolbar.js');
+    const { choosePen, pickPenInk } = await import('app://board/js/ui/toolbar.js');
     const r = {};
     const s = a.settings;
     const shipped = { black: PENS[0].color, red: PENS[1].color };
@@ -6134,9 +6209,9 @@ async function run(win, app) {
     choosePen(a, 'black');
     r.blackStartsShipped = s.penColor === shipped.black;
 
-    // recolour the black pen to orange, the way the popover does
+    // recolour the black pen to orange through the pen popover's own function
     const ORANGE = '#ff8c00';
-    a.rememberColor('stroke', 'color', ORANGE);
+    pickPenInk(a, ORANGE);
     r.heldAfterRecolour = heldPenId(s);
     r.inHandIsOrange = s.penColor === ORANGE;
 
@@ -6158,7 +6233,7 @@ async function run(win, app) {
 
     // two pens set to the same colour must still be told apart
     choosePen(a, 'red');
-    a.rememberColor('stroke', 'color', ORANGE);
+    pickPenInk(a, ORANGE);
     r.bothOrange = penById(s, 'black').color === ORANGE && penById(s, 'red').color === ORANGE;
     r.heldIsRedNotBlack = heldPenId(s) === 'red';
     const blackBtn = document.querySelector('#toolbar .pen[data-pen="black"]');
@@ -6180,11 +6255,11 @@ async function run(win, app) {
 
     // putting a pen back to what it shipped as leaves nothing stored
     choosePen(a, 'black');
-    a.rememberColor('stroke', 'color', shipped.black);
+    pickPenInk(a, shipped.black);
     r.forgottenWhenPutBack = !s.pens || !s.pens.black;
 
     delete s.pens; s.activePen = 'black';
-    a.rememberColor('stroke', 'color', shipped.black);
+    pickPenInk(a, shipped.black);
     a.saveSettings(); a.syncUI();
     return r;
   `);
@@ -10641,6 +10716,322 @@ module.exports.run = async (win, app) => {
   check('and comes straight back when you stop',
     !!typingOnPhone && typingOnPhone.cleared && typingOnPhone.after === typingOnPhone.before,
     typingOnPhone ? `back to ${typingOnPhone.after}` : 'not measured');
+
+  /* ---- board text is written in fonts the app ships, the same on every device ---- */
+  {
+    /*
+     * The files themselves, checked from outside the page: every face the CSS
+     * names must be on disk, carry its licence beside it, and be in the web
+     * app's offline cache - a font missing from that list works on the day
+     * it ships and silently falls back the first time someone is offline.
+     */
+    const fsSync = require('node:fs');
+    const SRC = path.join(__dirname, '..', 'src');
+    const css = fsSync.readFileSync(path.join(SRC, 'css', 'app.css'), 'utf8');
+    const sw = fsSync.readFileSync(path.join(SRC, 'sw.js'), 'utf8');
+    const declared = [...css.matchAll(/url\('\.\.\/(assets\/fonts\/board\/[^']+\.woff2)'\)/g)].map((m) => m[1]);
+    const missing = declared.filter((rel) => {
+      try { return fsSync.statSync(path.join(SRC, rel)).size < 1024; } catch { return true; }
+    });
+    check('every bundled board font the stylesheet names is really there',
+      declared.length === 18 && missing.length === 0,
+      `${declared.length} declared (wanted 18: five faces, two weights, latin and accented latin), ` +
+      `missing or empty: ${missing.join(', ') || 'none'}`);
+    const families = [...new Set(declared.map((rel) => rel.match(/board\/(.+?)-latin/)[1]))];
+    const unlicensed = families.filter((f) => {
+      try { return !/SIL Open Font License/.test(fsSync.readFileSync(path.join(SRC, 'assets', 'fonts', 'board', `LICENSE-${f}.txt`), 'utf8')); }
+      catch { return true; }
+    });
+    check('and each one ships with its licence',
+      families.length === 5 && unlicensed.length === 0,
+      `${families.length} families (${families.join(', ')}); without an OFL licence beside them: ` +
+      `${unlicensed.join(', ') || 'none'} — the licence has to travel with the font`);
+    const notCached = declared.filter((rel) => !sw.includes(`'./${rel}'`));
+    check('and each one is in the web app’s offline cache',
+      notCached.length === 0,
+      `not precached: ${notCached.join(', ') || 'none'} — works online, falls back to the device font offline`);
+  }
+
+  const boardFonts = await js(`
+    const a = window.app;
+    const r = {};
+    await a.loadBoardFonts();
+    const { FONTS } = await import('app://board/js/ui/palettes.js');
+    const { wrapText, fitFontSize } = await import('app://board/js/core/util.js');
+    const c = document.createElement('canvas').getContext('2d');
+
+    r.faces = FONTS.map((f) => f.id + ':' + (f.family || 'none')).join(' ');
+    r.labels = FONTS.map((f) => f.label).join(', ');
+    r.labelOf = Object.fromEntries(FONTS.map((f) => [f.id, f.label]));
+    /*
+     * Every file is asked for here and then its own status read, rather than
+     * trusting whatever state the page is in by now. Chromium rebuilds its
+     * list of @font-face entries whenever the window changes size - fresh
+     * entries, marked unloaded - while it goes on drawing from the copy it
+     * already has in memory (the resize check below proves the drawing never
+     * slips). So a status read late in a suite that has resized the window
+     * a dozen times says nothing about the files; asking for them does.
+     * Per-file rather than document.fonts.check(), so a failure names the
+     * file that would not load.
+     */
+    await Promise.allSettled(FONTS.flatMap((f) => [400, 600].map((w) =>
+      document.fonts.load(w + ' 16px "' + f.family + '"', 'Aa \\u0141\\u0142'))));
+    const all = [...document.fonts];
+    r.status = FONTS.map((f) => {
+      const mine = all.filter((ff) => ff.family.replace(/["']/g, '') === f.family);
+      const loaded = mine.filter((ff) => ff.status === 'loaded').length;
+      return { id: f.id, loaded, total: mine.length,
+               waiting: mine.filter((ff) => ff.status !== 'loaded').map((ff) => ff.weight + ' ' + ff.status + ' ' + ff.unicodeRange.slice(0, 12)) };
+    });
+    r.notLoaded = r.status.filter((x) => x.total === 0 || x.loaded !== x.total)
+      .map((x) => x.id + ' ' + x.loaded + '/' + x.total + (x.waiting.length ? ' [' + x.waiting.join('; ') + ']' : ''));
+
+    /*
+     * Proof the canvas draws with the bundled face and not a stand-in: the
+     * same words measured with the face in front of two very different
+     * fallbacks. If the face is doing the drawing the fallback never gets a
+     * say and the widths match to the pixel; if it is not, one side comes out
+     * monospace and the other serif. Comparing against the OLD stack instead
+     * is a coin toss - on some machines an old fallback happens to measure
+     * within a hair of the new face.
+     */
+    const S = 'The quick brown fox jumps over 12 lazy dogs';
+    const w = (font) => { c.font = font; return +c.measureText(S).width.toFixed(2); };
+    r.drawnWith = FONTS.map((f) => {
+      const a1 = w('400 20px "' + f.family + '", monospace');
+      const a2 = w('400 20px "' + f.family + '", serif');
+      const viaStack = w('400 20px ' + f.stack);
+      return { id: f.id, a1, a2, viaStack };
+    });
+    r.stray = r.drawnWith.filter((d) => d.a1 !== d.a2 || d.a1 !== d.viaStack)
+      .map((d) => d.id + ' (' + d.a1 + ' / ' + d.a2 + ' / stack ' + d.viaStack + ')');
+
+    /*
+     * Issue #24, as reported: a line that fits a table cell on one device
+     * must fit it on every device. This is the table cell's own layout - the
+     * same fit and wrap a cell does - in a default 3x3 table. The answers are
+     * pinned, and CI runs this suite on Windows, macOS and Linux: before the
+     * fonts were bundled, those three would each have given their own.
+     */
+    const cellW = 640 / 3 - 12, cellH = 360 / 3 - 12;
+    const lay = (text) => {
+      const size = fitFontSize(c, text, cellW, cellH, FONTS[0].stack, '400', 26, 10);
+      c.font = '400 ' + size + 'px ' + FONTS[0].stack;
+      const lines = wrapText(c, text, cellW);
+      return { size, lines, widths: lines.map((l) => +c.measureText(l).width.toFixed(1)) };
+    };
+    r.oneLine = lay('Marks obtained');
+    r.twoLines = lay('Week 3 quiz average');
+
+    /* and the board is redrawn once the faces land, not left in the stand-in */
+    const sf = a.surface, real = sf.repaintAll.bind(sf);
+    let repaints = 0;
+    sf.repaintAll = (...args) => { repaints++; return real(...args); };
+    a._boardFonts = null;
+    await a.loadBoardFonts();
+    sf.repaintAll = real;
+    r.repaintsWhenFontsLand = repaints;
+    return r;
+  `);
+  check('the picker calls Kalam Handwriting and Comic Neue Marker, without renaming what boards store',
+    boardFonts.labelOf.marker === 'Handwriting' && boardFonts.labelOf.hand === 'Marker' &&
+    /^Sans, Handwriting, Marker/.test(boardFonts.labels),
+    `picker reads: ${boardFonts.labels}; ids → labels ${JSON.stringify(boardFonts.labelOf)} — the ids are what a ` +
+    `board file stores, so swapping those instead would change the lettering of every note already written`);
+  check('every file of all five board faces is loaded, accented letters included',
+    boardFonts.notLoaded.length === 0,
+    `${boardFonts.status.map((x) => x.id + ' ' + x.loaded + '/' + x.total).join(', ')}; ` +
+    `not fully loaded: ${boardFonts.notLoaded.join(', ') || 'none'}`);
+  check('the canvas draws board text with those faces, not a stand-in',
+    boardFonts.stray.length === 0,
+    `stray: ${boardFonts.stray.join('; ') || 'none'} — a mismatch means the words were measured in a fallback, ` +
+    `which is exactly the device-to-device difference these fonts exist to remove`);
+  /*
+   * The widths are pinned as well as the line breaks. A break alone can come
+   * out right by luck - on a Linux build machine the stand-in font happens to
+   * break both of these sentences in the same places - so on its own it would
+   * pass there whether the fonts shipped or not. The widths belong to Open
+   * Sans and to nothing else; within a pixel, because the rasteriser may round
+   * differently per OS while the font's own measurements do not change.
+   */
+  const near = (got, want) => got.length === want.length && got.every((g, i) => Math.abs(g - want[i]) <= 1);
+  check('a line that fits one table cell fits it on every device (#24)',
+    boardFonts.oneLine.size === 26 && boardFonts.oneLine.lines.length === 1 &&
+    boardFonts.oneLine.lines[0] === 'Marks obtained' && near(boardFonts.oneLine.widths, [189.5]),
+    `laid out at ${boardFonts.oneLine.size}px as ${JSON.stringify(boardFonts.oneLine.lines)}, ` +
+    `${JSON.stringify(boardFonts.oneLine.widths)}px wide — wanted 26px on one line, 189.5px wide (Open Sans)`);
+  check('and a longer one breaks in the same place everywhere',
+    boardFonts.twoLines.size === 26 &&
+    JSON.stringify(boardFonts.twoLines.lines) === JSON.stringify(['Week 3 quiz', 'average']) &&
+    near(boardFonts.twoLines.widths, [145.8, 95.8]),
+    `laid out at ${boardFonts.twoLines.size}px as ${JSON.stringify(boardFonts.twoLines.lines)}, ` +
+    `${JSON.stringify(boardFonts.twoLines.widths)}px wide — wanted ["Week 3 quiz","average"] at [145.8, 95.8]px`);
+
+  /*
+   * Resizing the window must not drop board text into a stand-in font, even
+   * for a moment. Chromium throws its @font-face entries away and starts new
+   * ones on every resize - and a resize is exactly when the board redraws.
+   * Measured inside the resize event itself, the earliest a redraw could run.
+   */
+  await js(`
+    window.__resizeFace = null;
+    const c = document.createElement('canvas').getContext('2d');
+    const S = 'The quick brown fox jumps over 12 lazy dogs';
+    window.addEventListener('resize', () => {
+      c.font = '400 20px "GazBoard Open Sans", monospace'; const a = c.measureText(S).width;
+      c.font = '400 20px "GazBoard Open Sans", serif';     const b = c.measureText(S).width;
+      const st = [...document.fonts].filter((f) => f.family.replace(/["']/g, '') === 'GazBoard Open Sans').map((f) => f.status);
+      window.__resizeFace = { a: +a.toFixed(2), b: +b.toFixed(2), statuses: st.join(',') };
+    }, { once: true });
+    return true;
+  `);
+  const [fw, fh] = win.getSize();
+  win.setSize(fw - 80, fh);
+  for (let i = 0; i < 40 && !(await js('return !!window.__resizeFace;')); i++) await sleep(50);
+  const resizeFace = await js('return window.__resizeFace;');
+  win.setSize(fw, fh);
+  await sleep(400);
+  check('resizing the window never drops board text into a stand-in font',
+    !!resizeFace && resizeFace.a === resizeFace.b,
+    resizeFace
+      ? `measured in the resize event: ${resizeFace.a} against a monospace fallback, ${resizeFace.b} against a serif one ` +
+        `(font entries at that moment: ${resizeFace.statuses}) — equal means the bundled face drew both`
+      : 'the resize event never fired, so nothing was measured');
+  check('the board repaints once when its fonts arrive',
+    boardFonts.repaintsWhenFontsLand === 1,
+    `${boardFonts.repaintsWhenFontsLand} repaint(s) — none leaves text measured in the stand-in until something ` +
+    `else happens to redraw; more than one is wasted work at start-up`);
+
+  /* ---- an empty board says Happy Inking, and gets out of the way the moment you start ---- */
+  const greet = await js(`
+    const a = window.app, it = a.interaction, sf = a.surface, s = a.settings;
+    const r = {};
+    const themeWas = s.theme, inkWas = s.inkWithMouse;
+    a.newBoard(true); a.textEditor.cancel();
+    sf.cam.x = 0; sf.cam.y = 0; sf.cam.z = 1;
+    a.setTool('pen'); s.inkWithMouse = 'yes';
+    const frame = () => { sf.invalidate(); sf.draw(); return sf._greetingDrawn; };
+
+    r.empty = frame();
+    r.w = sf.width; r.h = sf.height;
+    r.objectsWhileGreeting = a.store.objects.length;
+
+    // pen down: gone before the stroke is finished, not after
+    const rect = sf.canvas.getBoundingClientRect();
+    const ev = (x, y) => ({ pointerId: 1, pointerType: 'mouse', button: 0, buttons: 1,
+      clientX: rect.left + x, clientY: rect.top + y, shiftKey: false, altKey: false, pressure: 0.5 });
+    it.onDown(ev(200, 200)); it.onMove(ev(260, 240)); it.onMove(ev(320, 260));
+    r.wetWhileInking = !!sf.wet;
+    sf.draw();
+    r.whileInking = sf._greetingDrawn;
+    it.onUp(ev(320, 260)); it.action = null; it.pointers.clear();
+    r.objectsAfterStroke = a.store.objects.length;
+    r.afterStroke = frame();
+
+    // back to an empty board, and it is back
+    a.command('edit.undo');
+    r.objectsAfterUndo = a.store.objects.length;
+    r.afterUndo = !!frame();
+
+    // anything at all on the board sends it away, not only ink
+    a.store.add({ id: 'gn', type: 'note', x: 300, y: 300, w: 200, h: 200, color: '#ffd94a',
+                  text: 'hi', rotation: 0, align: 'center', font: 'hand' });
+    r.withNote = frame();
+    a.store.clear();
+    r.afterClear = !!frame();
+
+    /*
+     * The eraser repaints only the strip it touched and leaves the rest of the
+     * canvas as it was. Text this faint, painted again on top of its own last
+     * copy, darkens with every move - so the greeting has to force a full frame
+     * instead. The pixels under it are summed before and after ten strips.
+     */
+    frame();
+    const dpr = sf.dpr || 1;
+    const sum = () => {
+      const x0 = Math.round((sf.width / 2 - 200) * dpr), y0 = Math.round((sf.height / 2 - 40) * dpr);
+      const d = sf.ctx.getImageData(x0, y0, Math.round(400 * dpr), Math.round(80 * dpr)).data;
+      let t = 0; for (let i = 0; i < d.length; i += 4) t += d[i] + d[i + 1] + d[i + 2];
+      return t;
+    };
+    /*
+     * Both readings are taken the same way - after an eraser-sized repaint -
+     * so the test compares like with like. A fresh full paint and a repaint
+     * from the board's saved copy can differ by a shade here and there,
+     * depending on the display's scaling and the graphics hardware (a
+     * Windows machine at 125% measured 780 out of 36 million), and that
+     * difference is not darkening.
+     */
+    const strip = () => { sf.invalidateBand({ x: 0, y: 0, w: 20, h: 20 }); sf.draw(); };
+    strip();
+    const before = sum();
+    for (let i = 0; i < 10; i++) strip();
+    r.darkenedBy = before - sum();
+    r.inkPixels = before;
+    r.dpr = dpr;
+
+    // never in an export: the same picture with the greeting switched off
+    const v = sf.cam.viewport(sf.width, sf.height);
+    const shot = () => {
+      const c = sf.renderTo({ x: v.x, y: v.y, w: v.w, h: v.h }, 1, true);
+      return c.toDataURL('image/png');
+    };
+    const withGreeting = shot();
+    const g = sf.greeting; sf.greeting = null;
+    const without = shot();
+    sf.greeting = g;
+    r.exportUntouched = withGreeting === without;
+
+    // light ink on a dark board
+    s.theme = 'dark'; a.applyTheme();
+    r.darkColour = frame()?.color;
+    s.theme = themeWas; a.applyTheme();
+    r.lightColour = frame()?.color;
+
+    s.inkWithMouse = inkWas; a.setTool('select'); a.newBoard(true);
+    return r;
+  `);
+  check('an empty board greets you with Happy Inking, in the middle of the window',
+    !!greet.empty && greet.empty.text === 'Happy Inking !!' &&
+    greet.empty.x === greet.w / 2 && greet.empty.y === greet.h / 2 && greet.objectsWhileGreeting === 0,
+    greet.empty
+      ? `"${greet.empty.text}" at ${greet.empty.x},${greet.empty.y} in a ${greet.w}x${greet.h} window, ${greet.empty.size}px; ` +
+        `objects on the board meanwhile: ${greet.objectsWhileGreeting} (it must never be one)`
+      : 'nothing was drawn on an empty board');
+  check('in the Handwriting face',
+    !!greet.empty && /GazBoard Kalam/.test(greet.empty.font), greet.empty ? greet.empty.font : 'not drawn');
+  check('it is gone the moment the pen touches down, before the stroke is finished',
+    greet.wetWhileInking === true && greet.whileInking === null,
+    `ink in flight: ${greet.wetWhileInking}; greeting drawn under it: ${greet.whileInking ? 'yes' : 'no'}`);
+  check('and stays gone once there is ink on the board',
+    greet.objectsAfterStroke === 1 && greet.afterStroke === null,
+    `${greet.objectsAfterStroke} object(s), greeting ${greet.afterStroke ? 'still drawn' : 'gone'}`);
+  check('undo back to an empty board and it returns',
+    greet.objectsAfterUndo === 0 && greet.afterUndo === true,
+    `${greet.objectsAfterUndo} object(s), greeting back: ${greet.afterUndo}`);
+  check('a sticky note sends it away too, and clearing the board brings it back',
+    greet.withNote === null && greet.afterClear === true,
+    `with a note: ${greet.withNote ? 'still drawn' : 'gone'}; after clearing: ${greet.afterClear ? 'back' : 'missing'}`);
+  /*
+   * A share, not an exact zero, so display scaling and graphics hardware do
+   * not matter. The bug this guards against is enormous - text painted over
+   * its own last copy darkened the area by 12.8% in ten moves - while two
+   * honest paints of the same picture can differ by a few thousandths of a
+   * percent. One hundredth of a percent sits a thousand times below the bug
+   * and well above the noise.
+   */
+  const darkShare = greet.inkPixels ? Math.abs(greet.darkenedBy) / greet.inkPixels : 1;
+  check('the eraser passing over an empty board does not darken it',
+    darkShare < 0.0001,
+    `darkened by ${(darkShare * 100).toFixed(4)}% (${greet.darkenedBy} of ${greet.inkPixels}) across ten eraser-sized ` +
+    `repaints at ${greet.dpr}x scaling — allowed under 0.01%; faint text painted over its own last copy ` +
+    `darkens by around 13%`);
+  check('it never reaches an export',
+    greet.exportUntouched === true,
+    `export with the greeting on matches one with it off: ${greet.exportUntouched}`);
+  check('light ink on a dark board, dark ink on a light one',
+    greet.darkColour === '#f3f2f1' && greet.lightColour === '#201f1e',
+    `dark board: ${greet.darkColour} (wanted #f3f2f1), light board: ${greet.lightColour} (wanted #201f1e)`);
 
   /* ---- finding LibreOffice, including on a drive that is not C ---- */
   {

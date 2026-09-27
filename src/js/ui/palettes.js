@@ -153,13 +153,27 @@ export function penIcon(color, effect, kind = 'pen') {
     <rect x="6.5" y="26" width="13" height="3" fill="rgba(255,255,255,.22)"/></svg>`;
 }
 
-/** Named text faces, including the comic/handwriting one. */
+/**
+ * Named text faces, in the order the picker shows them.
+ *
+ * Each leads with a face the app ships (see the @font-face rules at the top
+ * of app.css), so a board measures the same on every device that opens it.
+ * The names after it are what these faces used to be: they only matter where
+ * the bundled one cannot load, and in an SVG export opened in another program,
+ * which has no copy of ours and needs something close to fall back on.
+ *
+ * The id is what a board file stores, so it never changes; the label is only
+ * what the picker calls it. Kalam reads as someone's handwriting and Comic
+ * Neue as marker lettering, so that is what they are called - which left the
+ * ids the other way round, and they stay that way: renaming an id would change
+ * the lettering of every note already written in it.
+ */
 export const FONTS = [
-  { id: 'ui',     label: 'Sans',        stack: `'Segoe UI Variable','Segoe UI',-apple-system,Arial,sans-serif` },
-  { id: 'hand',   label: 'Handwriting', stack: `'Comic Sans MS','Segoe Print','Ink Free','Segoe Script','Bradley Hand','Chalkboard SE','Comic Neue',cursive` },
-  { id: 'marker', label: 'Marker',      stack: `'Ink Free','Segoe Marker','Comic Sans MS',cursive` },
-  { id: 'serif',  label: 'Serif',       stack: `Georgia,'Times New Roman',serif` },
-  { id: 'mono',   label: 'Mono',        stack: `'Cascadia Mono',Consolas,'Courier New',monospace` }
+  { id: 'ui',     label: 'Sans',        family: 'GazBoard Open Sans',     stack: `'GazBoard Open Sans','Segoe UI Variable','Segoe UI',-apple-system,Arial,sans-serif` },
+  { id: 'marker', label: 'Handwriting', family: 'GazBoard Kalam',         stack: `'GazBoard Kalam','Ink Free','Segoe Marker','Comic Sans MS',cursive` },
+  { id: 'hand',   label: 'Marker',      family: 'GazBoard Comic Neue',    stack: `'GazBoard Comic Neue','Comic Sans MS','Segoe Print','Ink Free','Segoe Script','Bradley Hand','Chalkboard SE','Comic Neue',cursive` },
+  { id: 'serif',  label: 'Serif',       family: 'GazBoard Gelasio',       stack: `'GazBoard Gelasio',Georgia,'Times New Roman',serif` },
+  { id: 'mono',   label: 'Mono',        family: 'GazBoard Cascadia Mono', stack: `'GazBoard Cascadia Mono','Cascadia Mono',Consolas,'Courier New',monospace` }
 ];
 
 export function fontStack(id) {

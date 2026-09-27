@@ -213,8 +213,15 @@ function openColorPopover(app, anchor, type, sel) {
     b.style.background = c;
     b.addEventListener('click', () => {
       const key = type === 'shape' ? 'stroke' : 'color';
+      /*
+       * Only the selection changes. Recolouring one sticky note, one line of
+       * text or one stroke used to quietly become the colour of the NEXT one
+       * too - and a recoloured stroke even changed the pen in your hand - so
+       * fixing one word's colour left every later word that colour until you
+       * noticed. What comes next is set where you choose what comes next: the
+       * tool's own picker on the toolbar.
+       */
       app.store.updateMany(sel.map((o) => o.id), { [key]: c }, 'recolour');
-      app.rememberColor(type, key, c);     // the next new object keeps this colour
       closePopover();
       app.surface.invalidate();
       updateSelectionBar(app);
@@ -230,7 +237,6 @@ function openColorPopover(app, anchor, type, sel) {
       b.style.background = c === 'none' ? 'repeating-linear-gradient(45deg,#fff,#fff 4px,#ddd 4px,#ddd 8px)' : c;
       b.addEventListener('click', () => {
         app.store.updateMany(sel.map((o) => o.id), { fill: c }, 'fill');
-        app.rememberColor('shape', 'fill', c);
         closePopover(); app.surface.invalidate();
       });
       fills.appendChild(b);

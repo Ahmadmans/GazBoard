@@ -518,6 +518,24 @@ function emojiPicker(app) {
   return body;
 }
 
+/**
+ * Give the pen in your hand a new ink - what picking a colour in the pen's
+ * popover does.
+ *
+ * The colour is written to that pen, not just to "the current ink": picking
+ * up another pen and coming back must find it still there. This is the ONLY
+ * way a pen changes colour. Recolouring a stroke already on the board used to
+ * do it too, which meant fixing the colour of one old line quietly swapped the
+ * ink of the pen you were about to write with.
+ */
+export function pickPenInk(app, c) {
+  const s = app.settings;
+  s.penColor = c; s.penEffect = 'none';
+  const held = heldPenId(s);
+  if (held) rememberPen(s, held, { color: c, effect: 'none' });
+  app.saveSettings(); app.syncUI();
+}
+
 /* ------------------------------------------------------------------ */
 export function openToolPopover(app, anchor, tool) {
   const s = app.settings;
@@ -550,12 +568,7 @@ export function openToolPopover(app, anchor, tool) {
      * a deliberate choice, so it is painted as chosen, in both themes and in
      * every export.
      */
-    const pickInk = (c) => {
-      s.penColor = c; s.penEffect = 'none';
-      const held = heldPenId(s);
-      if (held) rememberPen(s, held, { color: c, effect: 'none' });
-      app.saveSettings(); app.syncUI();
-    };
+    const pickInk = (c) => pickPenInk(app, c);
     const customInk = h('label', { class: 'sw sw-custom', title: 'Any colour — used exactly as picked, whatever the theme' });
     const customInput = h('input', { type: 'color' });
     customInput.value = s.penColor || '#201f1e';

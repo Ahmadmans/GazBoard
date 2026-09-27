@@ -16,7 +16,7 @@ import { createPanels } from './ui/panels.js';
 import { showContextMenu, updateSelectionBar } from './ui/contextmenu.js';
 import { closePopover, popoverOpen, h } from './ui/popover.js';
 import { icon } from './ui/icons.js';
-import { PENS, penById, rememberPen, heldPenId } from './ui/palettes.js';
+import { PENS, penById, rememberPen, heldPenId, FONTS } from './ui/palettes.js';
 import { exportPng, exportSvg, exportPdf, saveBoardFile, openBoardFile, exportable } from './export.js';
 import { boardThumb } from './ui/thumb.js';
 import {
@@ -171,6 +171,9 @@ class App {
     this.wireStore();
     this.initSync();
     this.restoreLastBoard();
+    // Board text cannot wait the way emoji can: until its faces land, every
+    // line on the board is measured in a stand-in font and wraps wrongly.
+    this.loadBoardFonts();
     // Emoji artwork can wait. Nothing on screen at start-up is an emoji, so
     // fetching and decoding half a megabyte of it while the board is still
     // restoring, wiring up and painting its first frame is work in the way of
@@ -1126,33 +1129,6 @@ class App {
       this.toast('Stylus detected — the mouse now pans instead of drawing', 'pen', 5000);
       this.surface.invalidate();
     }
-  }
-
-  /**
-   * Remember a colour chosen from the selection bar as the default for the
-   * next object of that kind - otherwise every new shape came back black.
-   */
-  rememberColor(type, key, value) {
-    const map = {
-      'stroke:color': 'penColor',
-      'note:color': 'noteColor',
-      'text:color': 'textColor',
-      'table:color': 'textColor',
-      'shape:stroke': 'shapeStroke',
-      'shape:fill': 'shapeFill'
-    };
-    const setting = map[`${type}:${key}`];
-    if (!setting) return;
-    this.settings[setting] = value;
-    if (setting === 'penColor') {
-      this.settings.penEffect = 'none';
-      // recolouring a stroke sets the default ink, and the default ink belongs
-      // to whichever pen is in the hand - otherwise picking that pen up again
-      // would hand back the colour it shipped with and quietly undo the change
-      const held = heldPenId(this.settings);
-      if (held) rememberPen(this.settings, held, { color: value, effect: 'none' });
-    }
-    this.saveSettings();
   }
 
   /** Returns whether anything was actually changed, so a caller can tell. */
@@ -2756,6 +2732,40 @@ class App {
   whenIdle(fn, timeout = 1500) {
     if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, { timeout });
     else setTimeout(fn, timeout);
+  }
+
+  /**
+   * Fetch the faces board text is written in, then redraw.
+   *
+   * Same trap as the emoji font below: canvas drawing does not count as a
+   * page needing a font, so a face named only in CSS is never fetched for the
+   * board, and every line keeps being measured in whatever the machine has.
+   * That is the very difference between devices these files exist to remove.
+   *
+   * Every face and both weights are asked for, and the sample carries an
+   * accented letter from outside plain Latin so the latin-ext file comes too -
+   * a name like Łukasz on a board would otherwise fall back, one letter at a
+   * time, to the machine's own font. The files are local, so this is quick;
+   * the board repaints once when all of them are in.
+   *
+   * Resolves either way. A face that fails to load leaves the board drawing
+   * in its fallback, which is how every board looked before this existed.
+   */
+  loadBoardFonts() {
+    if (this._boardFonts) return this._boardFonts;
+    const done = () => { this.surface?.repaintAll?.(); return true; };
+    try {
+      if (!document.fonts?.load) return (this._boardFonts = Promise.resolve(false));
+      const sample = 'Aa \u0141\u0142';
+      const asks = [];
+      for (const f of FONTS) {
+        for (const w of [400, 600]) asks.push(document.fonts.load(`${w} 16px "${f.family}"`, sample));
+      }
+      this._boardFonts = Promise.allSettled(asks).then(done, done);
+    } catch {
+      this._boardFonts = Promise.resolve(false);
+    }
+    return this._boardFonts;
   }
 
   loadEmojiFont() {

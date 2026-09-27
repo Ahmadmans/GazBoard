@@ -1,7 +1,7 @@
 // The canvas view: sizing, the draw loop, culling, overlays.
 
 import { Camera } from './camera.js';
-import { drawBackground, drawObject, drawSelection, drawMemberOutline, drawLockBadge, drawGroupHint, drawLockedOutline, FONT, setDarkBoard, isDarkBoard } from './render.js';
+import { drawBackground, drawObject, drawSelection, drawMemberOutline, drawLockBadge, drawGroupHint, drawLockedOutline, FONT, setDarkBoard, isDarkBoard, faceOf, inkPaint } from './render.js';
 import { worldBounds, boundsOf } from './store.js';
 import { pageRects, pageIndexForBox, pageIndexForBoxIn, stripBounds } from './pages.js';
 import { boxesIntersect } from './util.js';
@@ -29,6 +29,15 @@ export class Surface {
     this.overlays = [];        // fn(ctx, surface) drawn in screen space
     this.wet = null;           // in-progress stroke object
     this.laser = [];           // pointer trail: {x,y,t} world points, never saved
+    /*
+     * What an empty board says before anything is on it. Drawn over the board
+     * rather than placed on it, the way the laser is: it is not an object, so
+     * it cannot be selected, erased, saved, synced, undone or exported, and a
+     * board with nothing on it stays a board with nothing on it. Null turns it
+     * off. See drawGreeting().
+     */
+    this.greeting = 'Happy Inking !!';
+    this._greetingDrawn = null;   // what the last frame drew, for the suite
     this._lockedRev = -1;      // revision the locked-object list was built for
     this._locked = [];
     this._groupRev = -1;       // and the same for the group outlines
@@ -461,7 +470,7 @@ export class Surface {
       this.screenTransform();
       ctx.drawImage(this._ink.canvas, 0, 0, w, h);
       if (this.wet) this._drawWet(ctx);
-    } else if (this._bandOnly && this._band && this._painted) {
+    } else if (this._bandOnly && this._band && this._painted && !this.showsGreeting()) {
       /*
        * Only the band that changed. The rest of the canvas keeps the pixels it
        * already has, which is the whole point: on a big board an eraser move
@@ -616,11 +625,59 @@ export class Surface {
       if (box) drawSelection(ctx, box, locked ? { handles: false, dashed: true } : { rotate: true });
     }
 
+    // under everything else that floats, the laser included
+    this.drawGreeting(ctx);
+
     for (const fn of this.overlays) fn(ctx, this);
 
     // The laser goes on last: it is a pointing device, so it belongs above
     // everything, selection handles included.
     this.drawLaser(ctx);
+  }
+
+  /**
+   * Is the board empty enough to say hello?
+   *
+   * Nothing on it, and no ink in flight: the greeting goes the moment a pen
+   * touches down, not when the stroke is finished, because a greeting still
+   * sitting under the first line somebody is drawing is in their way. If that
+   * stroke comes to nothing - a palm, a tap too short to keep - the board is
+   * still empty and it comes back on its own.
+   */
+  showsGreeting() {
+    return !!this.greeting && !this.wet && !!this.store && this.store.objects.length === 0;
+  }
+
+  /**
+   * "Happy Inking !!", faintly, in the middle of the window.
+   *
+   * Screen-sized rather than board-sized, so it reads the same at any zoom
+   * and stays put while the board is panned underneath. In the Handwriting
+   * face, in the board's own ink - dark on a light board, light on a dark
+   * one - and far enough towards the background that nobody mistakes it for
+   * something they wrote.
+   *
+   * Drawn in full every frame it shows, never as part of a repaint of just
+   * the strip an eraser touched: text this faint painted over its own last
+   * copy would darken with every move.
+   */
+  drawGreeting(ctx) {
+    this._greetingDrawn = null;
+    if (!this.showsGreeting()) return;
+    const w = this.width, h = this.height;
+    const size = Math.round(Math.max(28, Math.min(72, Math.min(w, h) * 0.09)));
+    const font = `400 ${size}px ${faceOf('marker')}`;
+    const color = inkPaint(null);
+    const x = w / 2, y = h / 2;
+    ctx.save();
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.28;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.greeting, x, y);
+    ctx.restore();
+    this._greetingDrawn = { text: this.greeting, x, y, size, font, color };
   }
 
   /**
