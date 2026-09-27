@@ -2,7 +2,7 @@
 
 import { uid, bboxOfPoints, clamp, dist, simplify, unionBox } from './util.js';
 import { boundsOf, worldBounds, withAttached, withGroups} from './store.js';
-import { pick, inBox, inLasso, strokesAlong, normalizeBox } from './hit.js';
+import { pick, inBox, inLasso, strokesAlong, normalizeBox, curtainAt, toLocal } from './hit.js';
 import { handlePositions, HANDLE, HANDLES, drawShape, inkPaint } from './render.js';
 import { translateObject, scaleObject, rotateObjectAround, normalizeRect, anchorFor, CURSORS } from './transform.js';
 import { recognize, fitError, MAX_FIT_ERROR } from './recognize.js';
@@ -478,6 +478,16 @@ export class Interaction {
       }
       case 'select': default: this.startSelect(e, sp, wp); break;
     }
+    /*
+     * The laser, and a mouse or finger that is moving the board while a pen
+     * does the writing, have no way to leave a mark - so a tap from them on an
+     * answer cover can only mean "show me". Remember what they landed on;
+     * onUp decides whether it was a tap.
+     */
+    if (this.action && (tool === 'laser' || tool === 'mousePointer') && !this.spaceDown && e.button === 0) {
+      this.action.cover = curtainAt(this.store, wp, 8 / this.surface.cam.z);
+      this.action.downSp = sp;
+    }
     // Whichever pointer began the gesture owns it until it lifts.
     this.actionId = this.action ? e.pointerId : null;
     this.armHoldToMove(e, sp, wp);
@@ -828,6 +838,13 @@ export class Interaction {
     const sp = this.surface.screenPoint(e);
     const wp = this.surface.cam.toWorld(sp.x, sp.y);
 
+    if (a.cover && a.downSp && Math.hypot(sp.x - a.downSp.x, sp.y - a.downSp.y) < TAP_SLOP) {
+      // A tap, not a drag: whatever the pointer nudged on its way down goes
+      // back where it was, and the only change is the cover coming off.
+      if (a.type === 'move') { this.store.restoreSnapshot(a.snap); a.type = 'tapped'; }
+      this.app.revealCurtain(a.cover.id);
+    }
+
     switch (a.type) {
       case 'laser': break;            // the trail fades on its own
       case 'draw':
@@ -860,6 +877,7 @@ export class Interaction {
         if (!a.transient && !a.additive && moved < TAP_SLOP && a.tapId) {
           this.app.setSelection([a.tapId], false);
         }
+        this.releaseFromCovers(a.snap);
         this.store.commitSnapshot('move', a.snap);
         break;
       }
@@ -1241,7 +1259,6 @@ export class Interaction {
   tappedAnObject(a, e) {
     const finger = e.pointerType === 'touch';
     const selected = a.selectionAtDown;
-    if (!finger && !selected?.size) return false;
     const pts = a.obj && a.obj.points;
     if (!pts || !pts.length) return false;
 
@@ -1250,6 +1267,23 @@ export class Interaction {
     const slop = TAP_SLOP / z;
     const p0 = pts[0];
     for (const q of pts) if (Math.hypot(q.x - p0.x, q.y - p0.y) > slop) return false;
+
+    /*
+     * A tap on an answer cover lifts it, with whatever is in your hand.
+     *
+     * This is the moment the cover exists for: the class has had a go, and
+     * the teacher - pen in hand, mid-lesson - touches it to show the answer.
+     * Making them go and find the Select tool first would turn a reveal into
+     * a fumble. The pen only loses its full stop, and only on a cover.
+     */
+    const cover = curtainAt(this.store, p0, 8 / z);
+    if (cover) {
+      this.discardTapMark();
+      this.app.revealCurtain(cover.id);
+      this.surface.invalidate();
+      return true;
+    }
+    if (!finger && !selected?.size) return false;
 
     const hit = pick(this.store, p0, 8 / z);
 
@@ -1412,12 +1446,15 @@ export class Interaction {
    * Topmost wins, and the item has to sit mostly inside it.
    */
   lockedHostFor(obj) {
+    const cover = this.coverFor(obj);
+    if (cover) return cover;
     const b = worldBounds(obj);
     const area = Math.max(1, b.w * b.h);
     const order = this.store.doc.order;
     for (let i = order.length - 1; i >= 0; i--) {
       const host = this.store.doc.objects[order[i]];
-      if (!host || !host.locked || host.id === obj.id) continue;
+      // a cover claims ink by its own, stricter rule - coverFor() above
+      if (!host || !host.locked || host.id === obj.id || host.type === 'curtain') continue;
       const hb = worldBounds(host);
       const ox = Math.max(0, Math.min(b.x + b.w, hb.x + hb.w) - Math.max(b.x, hb.x));
       const oy = Math.max(0, Math.min(b.y + b.h, hb.y + hb.h) - Math.max(b.y, hb.y));
@@ -1427,6 +1464,64 @@ export class Interaction {
       if ((ox * oy) / area > 0.6 || (centreIn && ox > 0 && oy > 0)) return host.id;
     }
     return null;
+  }
+
+  /**
+   * The answer cover this was written ON, or null.
+   *
+   * Writing on a cover - "Q1", a hint, a circle round it - belongs to the
+   * cover: it moves with it and goes when the cover is lifted, because what
+   * is underneath is the answer and the scribble was only ever on the card.
+   *
+   * The test is strict on purpose, because getting it wrong the other way is
+   * worse. Ink that is swept away with a cover is ink the class never sees.
+   * So a stroke that STARTED off the cover and ran onto it is not the cover's,
+   * and neither is one that starts on it and wanders mostly off it: only a
+   * stroke that begins on the card and stays on it (all but a sliver) goes.
+   * Anything else - a note, a text box, a shape - has to sit wholly inside.
+   */
+  coverFor(obj) {
+    const order = this.store.doc.order;
+    for (let i = order.length - 1; i >= 0; i--) {
+      const c = this.store.doc.objects[order[i]];
+      if (!c || c.type !== 'curtain' || c.revealed || c.id === obj.id) continue;
+      const box = { x: Math.min(c.x, c.x + c.w), y: Math.min(c.y, c.y + c.h), w: Math.abs(c.w), h: Math.abs(c.h) };
+      const inside = (p) => {
+        const q = toLocal(c, p);
+        return q.x >= box.x && q.x <= box.x + box.w && q.y >= box.y && q.y <= box.y + box.h;
+      };
+      if (obj.type === 'stroke') {
+        const pts = obj.points || [];
+        if (!pts.length || !inside(pts[0])) continue;
+        const on = pts.reduce((n, p) => n + (inside(p) ? 1 : 0), 0);
+        if (on / pts.length >= Interaction.ON_COVER) return c.id;
+        continue;
+      }
+      const b = worldBounds(obj);
+      const corners = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x, y: b.y + b.h }, { x: b.x + b.w, y: b.y + b.h }];
+      if (corners.every(inside)) return c.id;
+    }
+    return null;
+  }
+
+  /**
+   * After a drag: ink pulled off its cover stops belonging to it.
+   *
+   * Otherwise a scribble moved away from the card would still vanish when the
+   * card is lifted, from somewhere else entirely on the board. Only ever
+   * loosens - ink dragged ONTO a cover is not claimed by it, since what was
+   * already on the board should not start disappearing because it was moved.
+   * Done on the live objects before the move is committed, so the change is
+   * part of the same undo step.
+   */
+  releaseFromCovers(snap) {
+    for (const id of snap.keys()) {
+      const o = this.store.get(id);
+      if (!o || !o.attachedTo || snap.has(o.attachedTo)) continue;
+      const host = this.store.get(o.attachedTo);
+      if (!host || host.type !== 'curtain') continue;
+      if (this.coverFor(o) !== host.id) o.attachedTo = undefined;
+    }
   }
 
   /* ---------------- erasing ----------------
@@ -2054,6 +2149,7 @@ export class Interaction {
 
   static ERASER_MAX_GROWTH = 1.8;      // up to 2.8x the chosen size
   static ERASER_GROWTH_SPAN = 900;     // world units of scrubbing to reach it
+  static ON_COVER = 0.85;              // share of a stroke that must lie on a cover to be written ON it
 
   static EDGE_MARGIN = 56;
   static EDGE_MAX_SPEED = 16;
@@ -2149,6 +2245,9 @@ export class Interaction {
       if (this.tool === 'select') { this.app.setTool('text'); this.action = null; }
       return;
     }
+    // A cover lifts on a double-click whatever else is true of it. Locked
+    // covers are the norm, since nobody wants one nudged mid-lesson.
+    if (hit.type === 'curtain') { this.app.revealCurtain(hit.id); return; }
     // only the picking tools own selection chrome
     if (this.tool !== 'pen' && this.tool !== 'highlighter') this.app.setSelection([hit.id]);
     if (hit.locked) { this.app.setSelection([hit.id]); this.app.hintLocked(); return; }

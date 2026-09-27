@@ -1088,3 +1088,116 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   #rxBadge.alert { animation: none; }
 }
+
+/* =================================================================== *
+ *  Presenting
+ *
+ *  The board and nothing else. Every bar goes; the toolbar is only tucked
+ *  below the bottom edge, and comes back up when the pointer goes down
+ *  there (see present.js) or when the corner bar pins it.
+ *
+ *  `translate` rather than `transform`, because the narrow layouts already
+ *  set transform on the toolbar and the two would fight. The individual
+ *  property composes with whatever transform is in force.
+ * =================================================================== */
+body.presenting #topbar,
+body.presenting #pagebar,
+body.presenting #zoombar,
+body.presenting #hints { display: none !important; }
+#toolbar { transition: translate .2s ease, opacity .2s ease; }
+body.presenting #toolbar { translate: 0 calc(100% + 40px); opacity: 0; pointer-events: none; }
+body.presenting.show-tools #toolbar { translate: 0 0; opacity: 1; pointer-events: auto; }
+
+#presentbar {
+  position: absolute; right: 14px; bottom: 14px; z-index: 22;
+  display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: 10px; box-shadow: var(--shadow-1);
+  opacity: .42; transition: opacity .18s ease;
+}
+#presentbar[hidden] { display: none; }
+#presentbar:hover, #presentbar:focus-within { opacity: 1; }
+#presentbar button { width: 34px; height: 34px; border-radius: 6px; display: grid; place-items: center; color: var(--text-2); }
+#presentbar button[hidden] { display: none; }
+#presentbar button:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+#presentbar button:disabled { opacity: .35; cursor: default; }
+#presentbar button.on { background: var(--accent-soft); color: var(--accent); }
+#presentLabel { min-width: 52px; text-align: center; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+#presentLabel[hidden] { display: none; }
+@media (pointer: coarse) {
+  /* no hover to wake it up, so it is never quite as faint */
+  #presentbar { opacity: .7; }
+  #presentbar button { width: 40px; height: 40px; }
+}
+
+/* ---------------- answer covers ---------------- */
+#ctxbar button.reveal-btn {
+  width: auto; padding: 0 12px 0 9px; gap: 6px; display: flex; align-items: center;
+  color: var(--accent); font-size: 13px; font-weight: 600;
+}
+
+/* =================================================================== *
+ *  The class timer
+ *
+ *  Top left: the hints live top right, and the two must never sit on top
+ *  of one another. Big enough to read from the back of a room - which is
+ *  the only reason to put a clock on the board rather than a wrist.
+ * =================================================================== */
+#classTimer {
+  position: absolute; top: 14px; left: 16px; z-index: 27;
+  transform-origin: 0 0;
+  display: flex; align-items: center; gap: 8px; padding: 6px 18px 6px 12px;
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: 14px; box-shadow: var(--shadow-2);
+  color: var(--text); user-select: none; touch-action: none; cursor: grab;
+}
+#classTimer:active { cursor: grabbing; }
+#classTimer button, #classTimer input { cursor: pointer; }
+#classTimer input { cursor: text; }
+#classTimer .ct-title { display: flex; color: var(--text-2); align-self: flex-start; padding-top: 8px; }
+#classTimer .ct-pick { display: flex; flex-direction: column; gap: 6px; }
+#classTimer .ct-presets { display: flex; gap: 4px; }
+#classTimer .ct-preset {
+  height: 36px; padding: 0 12px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  color: var(--text); background: var(--surface-2);
+}
+#classTimer .ct-preset:hover { background: var(--accent-soft); color: var(--accent); }
+#classTimer .ct-custom { display: flex; gap: 4px; }
+#classTimer .ct-input {
+  flex: 1; min-width: 0; height: 34px; padding: 0 10px; border-radius: 8px; font-size: 14px;
+  border: 1px solid var(--stroke); background: var(--surface); color: var(--text);
+}
+#classTimer .ct-input:focus { outline: none; border-color: var(--accent-2); }
+#classTimer .ct-input.ct-bad { border-color: #d13438; background: rgba(209, 52, 56, .08); }
+#classTimer .ct-go { height: 34px; padding: 0 14px; border-radius: 8px; font-size: 13.5px; font-weight: 600; color: #fff; background: var(--accent); }
+#classTimer .ct-now { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+#classTimer .ct-now-digits { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+#classTimer .ct-keep { margin-left: auto; height: 28px; padding: 0 10px; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+#classTimer .ct-digits {
+  font-size: clamp(44px, 7vw, 96px); line-height: 1; font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: -1px; color: var(--text);
+  padding: 2px 4px; border-radius: 8px; cursor: inherit;
+}
+#classTimer .ct-controls { display: flex; flex-direction: column; gap: 2px; }
+#classTimer.ct-running .ct-controls, #classTimer.ct-paused .ct-controls, #classTimer.ct-done .ct-controls {
+  display: grid; grid-template-columns: repeat(2, 30px);
+}
+#classTimer .ct-btn { width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; color: var(--text-2); }
+#classTimer .ct-btn:hover { background: var(--surface-2); color: var(--text); }
+#classTimer.ct-paused .ct-digits { opacity: .55; }
+/* The corner to size it by: three short diagonal lines, the usual sign. */
+#classTimer .ct-resize {
+  position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 45%, var(--text-2) 45%, var(--text-2) 52%, transparent 52%,
+    transparent 64%, var(--text-2) 64%, var(--text-2) 71%, transparent 71%, transparent 83%, var(--text-2) 83%, var(--text-2) 90%, transparent 90%);
+  opacity: .5; border-radius: 0 0 12px 0;
+}
+#classTimer .ct-resize:hover { opacity: 1; }
+/* The last thirty seconds, and time's up: red, so the back row sees it
+   coming. At zero it also pulses for a few seconds - noticed, not an alarm. */
+#classTimer.ct-low .ct-digits, #classTimer.ct-low .ct-now-digits { color: #d13438; }
+#classTimer.ct-low { border-color: #d13438; }
+#classTimer.ct-done { border-color: #d13438; }
+#classTimer.ct-done .ct-digits { color: #d13438; animation: ctPulse 1s ease-in-out 6; }
+@keyframes ctPulse { 50% { opacity: .25; } }
+@media (max-width: 620px) {
+  #classTimer .ct-preset { padding: 0 8px; }
+}

@@ -5,13 +5,15 @@ import { Store, withAttached, withGroups, groupMembers, worldBounds, boundsOf } 
 import { scaleObject, translateObject } from './core/transform.js';
 import { Surface } from './core/surface.js';
 import { Interaction } from './core/tools.js';
-import { pick } from './core/hit.js';
+import { pick, ghost } from './core/hit.js';
 import { uid, debounce, clamp, unionBox } from './core/util.js';
 import { pageRects, stripBounds, pageIndexForBox, nearestPageIndex, offsetIntoRect, PAGE_GAP } from './core/pages.js';
 import { isNewer } from './core/version.js';
 import { emojiAspect, forgetEmojiMetrics, setDarkBoard } from './core/render.js';
 import { TextEditor } from './ui/textedit.js';
 import { initToolbar, syncToolbar } from './ui/toolbar.js';
+import { initPresentBar, syncPresentBar } from './ui/present.js';
+import { ClassTimer } from './ui/timer.js';
 import { createPanels } from './ui/panels.js';
 import { showContextMenu, updateSelectionBar } from './ui/contextmenu.js';
 import { closePopover, popoverOpen, h } from './ui/popover.js';
@@ -166,6 +168,15 @@ class App {
     this.interaction = new Interaction(this);
 
     initToolbar(this);
+    // Presenting and the class timer. Neither is part of the board: both
+    // belong to the lesson, so they live on the app and outlast a board switch.
+    this.presenting = false;
+    this.presentToolsPinned = false;
+    initPresentBar(this);
+    this.timer = new ClassTimer(document.getElementById('stage'), {
+      box: this.settings.timerBox,
+      onPlace: (box) => { this.settings.timerBox = box; this.saveSettings(); }
+    });
     this.wireGlobalEvents();
     this.initDismissal();
     this.wireStore();
@@ -1007,6 +1018,9 @@ class App {
   adoptOverlapping(hosts) {
     const patch = [];
     for (const host of hosts) {
+      // A cover only ever owns what was written on it, by coverFor()'s strict
+      // rule. Locking one must not sweep up the ink around it as well.
+      if (host.type === 'curtain') continue;
       const hb = worldBounds(host);
       const hostIndex = this.store.indexOf(host.id);
       for (const o of this.store.objects) {
@@ -1020,7 +1034,8 @@ class App {
         if ((ox * oy) / Math.max(1, b.w * b.h) > 0.6 || (centreIn && ox > 0 && oy > 0)) patch.push(o.id);
       }
     }
-    if (patch.length) this.store.updateMany(patch, { attachedTo: hosts[0].id }, 'attach to locked');
+    const first = hosts.find((o) => o.type !== 'curtain');
+    if (patch.length && first) this.store.updateMany(patch, { attachedTo: first.id }, 'attach to locked');
     return patch.length;
   }
 
@@ -1264,6 +1279,187 @@ class App {
     this.setTool('select');
   }
 
+  /* ================================================================= *
+   *  Answer covers
+   *
+   *  A card laid over an answer, a label or the next step of a worked
+   *  example, lifted with a tap when the class is ready for it. It is an
+   *  object on the board like any other - it moves, resizes, locks and
+   *  groups - with one extra fact about it: whether it has been lifted.
+   *  Lifting is an ordinary change to the document, so undo puts the card
+   *  straight back, and a board saved mid-lesson opens with the answers
+   *  that were showing still showing.
+   * ================================================================= */
+
+  /** Drop a cover in the middle of the view, selected, ready to be sized. */
+  addCurtain() {
+    const view = this.surface.cam.viewport(this.surface.width, this.surface.height);
+    const w = this.worldSize(360), hh = this.worldSize(110);
+    const o = {
+      id: uid('cv'), type: 'curtain', x: view.x + view.w / 2 - w / 2, y: view.y + view.h / 2 - hh / 2,
+      w, h: hh, rotation: 0, revealed: false
+    };
+    this.store.add(o, 'answer cover');
+    this.setSelection([o.id]);
+    this.setTool('select');
+    this.showHint('curtain-placed',
+      'Drag the cover over whatever the class should not see yet. '
+      + 'A <b>tap</b> with the pen, a finger or the laser lifts it; <b>undo</b> puts it back.');
+    return o;
+  }
+
+  /**
+   * Everything written on these covers - their ink, and anything else that
+   * was put down wholly on the card. See coverFor() in tools.js.
+   */
+  onCovers(ids) {
+    const set = new Set(ids);
+    return this.store.objects.filter((o) => o.attachedTo && set.has(o.attachedTo));
+  }
+
+  /**
+   * Lift or lower covers, and what is written on them, as ONE change - so a
+   * single undo puts back the card and its scribbles together.
+   */
+  setCovers(ids, revealed, label) {
+    const ops = [];
+    const set = (o, key, val) => {
+      if ((o[key] ?? false) === val) return;
+      ops.push({ t: 'set', id: o.id, before: { [key]: o[key] }, after: { [key]: val } });
+    };
+    for (const id of ids) { const c = this.store.get(id); if (c) set(c, 'revealed', revealed); }
+    for (const o of this.onCovers(ids)) set(o, 'hidden', revealed);
+    this.store.commit(label, ops);
+  }
+
+  /** Lift one cover. Returns false if there was nothing to lift. */
+  revealCurtain(id) {
+    const o = this.store.get(id);
+    if (!o || o.type !== 'curtain' || o.revealed) return false;
+    this.surface.fadeOut(o);
+    for (const w of this.onCovers([id])) this.surface.fadeOut(w);
+    this.setCovers([id], true, 'reveal');
+    this.dropHidden();
+    this.surface.invalidate();
+    this.syncUI();
+    return true;
+  }
+
+  /** Lift every cover in the selection, as one undo. */
+  revealSelectedCurtains() {
+    const ids = this.selected.filter((o) => o.type === 'curtain' && !o.revealed).map((o) => o.id);
+    if (!ids.length) return 0;
+    for (const id of ids) this.surface.fadeOut(this.store.get(id));
+    for (const w of this.onCovers(ids)) this.surface.fadeOut(w);
+    this.setCovers(ids, true, 'reveal');
+    this.dropHidden();
+    this.surface.invalidate();
+    this.syncUI();
+    return ids.length;
+  }
+
+  /** Nothing that has just gone out of sight can stay selected. */
+  dropHidden() {
+    const keep = this.selected.filter((o) => !ghost(o)).map((o) => o.id);
+    if (keep.length !== this.surface.selection.size) this.setSelection(keep, false, { whole: false });
+  }
+
+  /** Put every lifted cover back, for the next class. One undo takes it back. */
+  coverAllCurtains() {
+    const ids = this.store.objects.filter((o) => o.type === 'curtain' && o.revealed).map((o) => o.id);
+    if (!ids.length) {
+      const any = this.store.objects.some((o) => o.type === 'curtain');
+      this.toast(any ? 'Every answer is already covered' : 'This board has no answer covers', 'help');
+      return 0;
+    }
+    this.setCovers(ids, false, 'cover answers');
+    this.surface.invalidate();
+    this.syncUI();
+    this.toast(ids.length === 1 ? 'One answer covered again' : `${ids.length} answers covered again`, 'curtain');
+    return ids.length;
+  }
+
+  /* ================================================================= *
+   *  Presenting
+   * ================================================================= */
+
+  /**
+   * The board, the whole screen, and nothing else.
+   *
+   * Full screen is asked for and not relied on: a browser can refuse it, an
+   * Android WebView often does, and a test window must not be thrown into
+   * it. Presenting works either way - it is the chrome going away that
+   * matters, and the screen filling is a bonus where it is allowed.
+   */
+  startPresenting({ fullscreen = true } = {}) {
+    if (this.presenting) return;
+    this.presenting = true;
+    this.presentToolsPinned = false;
+    closePopover();
+    if (this.panels.open) this.panels.close();
+    this.commitTextEdit();
+    document.body.classList.add('presenting');
+    document.body.classList.remove('show-tools');
+    this._presentFullscreen = false;
+    const el = document.documentElement;
+    if (fullscreen && !document.fullscreenElement && el.requestFullscreen) {
+      try {
+        const p = el.requestFullscreen();
+        this._presentFullscreen = true;
+        if (p && p.catch) p.catch(() => { this._presentFullscreen = false; });
+      } catch { this._presentFullscreen = false; }
+    }
+    this.presentFit();
+    // The bars have only just gone, so the window's final size lands a frame
+    // or two later - and later still when full screen kicks in.
+    requestAnimationFrame(() => requestAnimationFrame(() => this.presentFit()));
+    this.syncUI();
+    this.toast(this.pageCount > 1
+      ? 'Presenting — Page Down for the next page, Esc to finish'
+      : 'Presenting — Esc to finish', 'present');
+  }
+
+  stopPresenting() {
+    if (!this.presenting) return;
+    this.presenting = false;
+    this.presentToolsPinned = false;
+    document.body.classList.remove('presenting', 'show-tools');
+    if (this._presentFullscreen && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+    this._presentFullscreen = false;
+    this.surface.resize(true);
+    if (this.pageCount) this.fitToPage(this.currentPageIndex());
+    this.syncUI();
+  }
+
+  /** Sit the page you are on in the (new, bigger) window. */
+  presentFit() {
+    this.surface.resize(true);
+    if (this.pageCount) this.fitToPage(this.currentPageIndex());
+    this.surface.invalidate();
+    syncPresentBar(this);
+  }
+
+  /**
+   * One page on or back. On an infinite canvas there are no pages, and the
+   * keys simply do nothing - guessing at "the next screenful" of a board
+   * nobody laid out in screenfuls would jump somewhere arbitrary.
+   */
+  presentStep(delta) {
+    if (!this.pageCount) return false;
+    const from = this.currentPageIndex();
+    this.goToPage(from + delta);
+    syncPresentBar(this);
+    return this.currentPageIndex() !== from;
+  }
+
+  setPresentTools(on) {
+    this.presentToolsPinned = !!on;
+    document.body.classList.toggle('show-tools', !!on);
+    syncPresentBar(this);
+  }
+
   /**
    * Add or remove a row (axis 0) or a column (axis 1) of the selected table.
    *
@@ -1336,7 +1532,7 @@ class App {
         sf.selection.clear();
         break;
       }
-      case 'edit.selectAll': this.setSelection(s.doc.order.filter((id) => !s.get(id)?.locked)); this.setTool('select'); break;
+      case 'edit.selectAll': this.setSelection(s.doc.order.filter((id) => !s.get(id)?.locked && !ghost(s.get(id)))); this.setTool('select'); break;
       case 'edit.copy': this.copy(); break;
       case 'edit.cut': this.copy(); if (sf.selection.size) { s.remove([...sf.selection]); sf.selection.clear(); } break;
       // Every way of asking to paste goes through the one rule. The Edit menu
@@ -1393,6 +1589,12 @@ class App {
       case 'insert.image': pickAndInsertImage(this); break;
       case 'insert.document': pickAndInsertDocument(this); break;
       case 'insert.table': this.addTable(); break;
+      case 'insert.curtain': this.addCurtain(); break;
+      case 'curtain.reveal': this.revealSelectedCurtains(); break;
+      case 'curtain.coverAll': this.coverAllCurtains(); break;
+      case 'view.present': this.presenting ? this.stopPresenting() : this.startPresenting(); break;
+      case 'view.stopPresenting': this.stopPresenting(); break;
+      case 'timer.open': this.timer.toggle(); break;
 
       case 'export.png': this.checkOffPageBeforeExport().then((go) => go && exportPng(this, { scale: 2 })); break;
       case 'export.pngSelection': exportPng(this, { scale: 2, selectionOnly: true }); break;
@@ -1648,6 +1850,7 @@ class App {
   /* ---------------- UI sync ---------------- */
   syncUI() {
     syncToolbar(this);
+    syncPresentBar(this);
     updateSelectionBar(this);
     this.syncZoom();
     this.interaction?.refreshInkCursor?.();
@@ -2592,6 +2795,10 @@ class App {
       ['Edit text of selection', 'F2 or double-click'], ['Nudge selection', 'Arrow keys'],
       ['Bring to front / Send to back', 'Ctrl+Shift+] / Ctrl+Shift+['],
       ['Constrain / square', 'Hold Shift while drawing'],
+      ['h', 'Teaching'],
+      ['Present', 'F5'], ['Stop presenting', 'Esc'],
+      ['Next / previous page while presenting', 'Page Down / Page Up, or the arrows'],
+      ['Lift an answer cover', 'Tap it with the pen, a finger or the laser'],
       ['h', 'Files'],
       ['New board', 'Ctrl+N'], ['Open board', 'Ctrl+O'], ['Save a copy', 'Ctrl+S'],
       ['Insert image or document', 'Drag a file onto the canvas']
@@ -2897,6 +3104,17 @@ class App {
     });
 
     window.addEventListener('resize', () => this.textEditor.reposition());
+    // Going full screen, or turning a tablet round, while presenting: keep the
+    // page filling the screen.
+    window.addEventListener('resize', () => { if (this.presenting) this.presentFit(); this.timer?.place(); });
+    /*
+     * Leaving full screen by any route - Escape, F11, the system's own button -
+     * ends presenting too. Staying in a chrome-less board inside an ordinary
+     * window would look like the app had lost its toolbars.
+     */
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && this.presenting && this._presentFullscreen) this.stopPresenting();
+    });
     document.addEventListener('wheel', () => this.textEditor.reposition(), { passive: true });
     window.addEventListener('beforeunload', () => {
       if (this.settings.autosave) this.persist();
@@ -2911,6 +3129,25 @@ class App {
     const mod = e.ctrlKey || e.metaKey;
 
     if (e.code === 'Space') { this.interaction.spaceDown = true; e.preventDefault(); return; }
+
+    // F5 presents, as it does in every slide program; Shift+F5 too.
+    if (e.key === 'F5') { e.preventDefault(); if (!this.presenting) this.command('view.present'); return; }
+
+    /*
+     * While presenting, the page keys and the arrows turn pages - which is also
+     * what a presentation clicker sends. Arrows go back to nudging the moment
+     * something is selected, because moving a thing you picked up is plainly
+     * what they mean then. Space is left alone: it pans, and a teacher holding
+     * it to drag the board must not be flung onto the next page.
+     */
+    if (this.presenting && !mod) {
+      const step = { PageDown: 1, PageUp: -1, ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (step && !(e.key.startsWith('Arrow') && this.surface.selection.size)) {
+        e.preventDefault();
+        this.presentStep(step);
+        return;
+      }
+    }
 
     if (this.pageCount) {
       if (e.key === 'PageDown') { e.preventDefault(); this.command('page.next'); return; }
@@ -2955,6 +3192,8 @@ class App {
         // 1. Something is being drawn right now. Abandon it; nothing was ever
         //    added to the board, so there is nothing to undo afterwards.
         if (this.interaction?.cancelGesture?.()) return;
+        // Presenting: Escape is how everyone expects to get out of it.
+        if (this.presenting) { this.stopPresenting(); return; }
         // 2. A tool is armed and waiting to drop something - a note, a text
         //    box, a shape, an emoji. Changing your mind before the drop puts
         //    you back where you were, which is the pen if you were writing and

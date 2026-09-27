@@ -435,6 +435,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Insert image…', click: cmd('insert.image') },
         { label: 'Insert document (Word / PowerPoint / PDF)…', click: cmd('insert.document') },
+        { label: 'Insert answer cover', click: cmd('insert.curtain') },
         { type: 'separator' },
         { label: 'Export as PNG…', click: cmd('export.png') },
         { label: 'Export as PDF…', click: cmd('export.pdf') },
@@ -473,6 +474,13 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Format background…', click: cmd('view.background') },
         { label: 'Toggle ruler', accelerator: 'CmdOrCtrl+R', click: cmd('view.ruler') },
+        { type: 'separator' },
+        // F5 is shown here but handled by the page, the same way Paste is: the
+        // page also has to hear it while presenting, and a menu that claimed
+        // the key would stop it getting there.
+        { label: 'Present', accelerator: 'F5', registerAccelerator: false, click: cmd('view.present') },
+        { label: 'Class timer', click: cmd('timer.open') },
+        { label: 'Cover answers again', click: cmd('curtain.coverAll') },
         { type: 'separator' },
         { label: 'Full screen', accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' },
         { label: 'Maximise window', click: () => { if (mainWindow) mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); } },

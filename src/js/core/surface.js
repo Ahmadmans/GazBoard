@@ -38,6 +38,8 @@ export class Surface {
      */
     this.greeting = 'Happy Inking !!';
     this._greetingDrawn = null;   // what the last frame drew, for the suite
+    // Answer covers on their way out: id -> { obj, t0 }. See fadeOut().
+    this._fades = new Map();
     this._lockedRev = -1;      // revision the locked-object list was built for
     this._locked = [];
     this._groupRev = -1;       // and the same for the group outlines
@@ -236,6 +238,7 @@ export class Surface {
   }
 
   static LASER_LIFE = 520;       // ms a point stays visible
+  static FADE_MS = 260;          // ms a lifted answer cover takes to melt away
 
   /** Drop trail points that have faded out. */
   pruneLaser() {
@@ -251,6 +254,7 @@ export class Surface {
     this.resize();                 // cheap no-op unless the box or DPR moved
     // a fading trail has to keep repainting even when nothing else changed
     if (this.laser.length) { this.pruneLaser(); this.dirty = true; }
+    if (this._fades.size) this.dirty = true;
     if (!this.dirty) return;
     this.dirty = false;
     this.draw();
@@ -470,7 +474,7 @@ export class Surface {
       this.screenTransform();
       ctx.drawImage(this._ink.canvas, 0, 0, w, h);
       if (this.wet) this._drawWet(ctx);
-    } else if (this._bandOnly && this._band && this._painted && !this.showsGreeting()) {
+    } else if (this._bandOnly && this._band && this._painted && !this.showsGreeting() && !this._fades.size) {
       /*
        * Only the band that changed. The rest of the canvas keeps the pixels it
        * already has, which is the whole point: on a big board an eraser move
@@ -625,6 +629,8 @@ export class Surface {
       if (box) drawSelection(ctx, box, locked ? { handles: false, dashed: true } : { rotate: true });
     }
 
+    this.drawFades(ctx);
+
     // under everything else that floats, the laser included
     this.drawGreeting(ctx);
 
@@ -633,6 +639,35 @@ export class Surface {
     // The laser goes on last: it is a pointing device, so it belongs above
     // everything, selection handles included.
     this.drawLaser(ctx);
+  }
+
+  /**
+   * Let a lifted answer cover melt away rather than blink out.
+   *
+   * The document already says it is revealed, so the board underneath is
+   * painted without it and nothing about saving, undo or export has to know
+   * a fade exists. This is only the last quarter-second of its picture,
+   * drawn over the top and getting fainter. A blink reads as a glitch; a
+   * fade reads as "and here is the answer".
+   */
+  fadeOut(obj, ms = Surface.FADE_MS) {
+    if (!obj) return;
+    this._fades.set(obj.id, { obj: { ...obj, revealed: false, hidden: false }, t0: performance.now(), ms });
+    this.dirty = true;
+  }
+
+  drawFades(ctx, now = performance.now()) {
+    if (!this._fades.size) return;
+    const cam = this.cam;
+    ctx.save();
+    ctx.setTransform(this.dpr * cam.z, 0, 0, this.dpr * cam.z, this.dpr * cam.x, this.dpr * cam.y);
+    for (const [id, f] of this._fades) {
+      const k = (now - f.t0) / f.ms;
+      if (k >= 1) { this._fades.delete(id); continue; }
+      ctx.globalAlpha = 1 - k;
+      drawObject(ctx, f.obj);
+    }
+    ctx.restore();
   }
 
   /**

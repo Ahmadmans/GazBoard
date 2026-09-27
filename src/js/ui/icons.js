@@ -52,7 +52,16 @@ const P = {
   rowAdd: 'M4 4h16v5H4zM4 9h16v5H4M12 17v5M9.5 19.5h5',
   rowDel: 'M4 4h16v5H4zM4 9h16v5H4M9.5 19.5h5',
   colAdd: 'M4 4h5v16H4zM9 4h5v16H9M19 9v6M16 12h6',
-  colDel: 'M4 4h5v16H4zM9 4h5v16H9M16 12h6'
+  colDel: 'M4 4h5v16H4zM9 4h5v16H9M16 12h6',
+  // a screen on a stand with a play mark: presenting
+  present: 'M3 4h18v12H3zM12 16v4M8 20h8M10.2 7.6v4.8l4-2.4z',
+  // a stopwatch: the class timer
+  timer: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4.2l2.6 1.6M10 2.5h4M12 2.5V5M18.6 6.4l1.2-1.2',
+  pause: 'M8.5 5.5v13M15.5 5.5v13',
+  play: 'M7.5 5.2l11 6.8-11 6.8z',
+  eye: 'M2.5 12C3.8 10 7.3 6 12 6s8.2 4 9.5 6c-1.3 2-4.8 6-9.5 6s-8.2-4-9.5-6zM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z',
+  // a card lying over some lines: an answer cover
+  curtain: 'M4 4h16v6H4zM4 14h16M4 18h10M7 7h10'
 };
 
 export function icon(name, size = 20, stroke = 1.6) {

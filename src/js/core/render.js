@@ -774,6 +774,53 @@ export function drawTable(ctx, o, hideCell = null) {
 }
 
 /* =================================================================== *
+ *  Answer covers
+ * =================================================================== */
+export const CURTAIN_COLOR = '#5b5fc7';
+export const CURTAIN_LABEL = 'Tap to reveal';
+
+/**
+ * A card laid over part of the board, the way a teacher slides a sheet of
+ * paper down an overhead to show one line at a time.
+ *
+ * Solid on purpose, and the same on a light board and a dark one: its whole
+ * job is that nothing underneath shows through, and a see-through cover is a
+ * spoiler. Faint stripes and a label say "there is something under here" so
+ * nobody mistakes it for a coloured box they are meant to read.
+ *
+ * Once revealed it draws nothing at all - it is not faded, not outlined, not
+ * in the export. Undo, or "Cover answers again", brings it back.
+ */
+export function drawCurtain(ctx, o) {
+  if (o.revealed) return;
+  const { x, y, w, h } = o;
+  const r = Math.min(14, Math.abs(w) / 6, Math.abs(h) / 6);
+  ctx.save();
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+  ctx.fillStyle = o.color || CURTAIN_COLOR;
+  ctx.fill();
+  ctx.clip();
+  // the stripes: light, wide, and at 45 degrees so they read as a pattern
+  // rather than as ruled lines somebody might try to write on
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  for (let d = -h; d < w; d += 28) { ctx.moveTo(x + d, y + h); ctx.lineTo(x + d + h, y); }
+  ctx.stroke();
+  const label = o.label ?? CURTAIN_LABEL;
+  if (label) {
+    const size = Math.max(10, Math.min(40, h * 0.3, w / (label.length * 0.62)));
+    ctx.font = `600 ${size}px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + w / 2, y + h / 2);
+  }
+  ctx.restore();
+}
+
+/* =================================================================== *
  *  Dispatch
  * =================================================================== */
 /**
@@ -806,6 +853,7 @@ export function drawObject(ctx, o, onload, editing = null) {
     case 'image': drawImage(ctx, o, onload); break;
     case 'emoji': drawEmoji(ctx, o); break;
     case 'table': drawTable(ctx, o, hideCell); break;
+    case 'curtain': drawCurtain(ctx, o); break;
   }
   ctx.restore();
 }

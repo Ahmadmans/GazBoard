@@ -9034,10 +9034,22 @@ module.exports.run = async (win, app) => {
     a.setSelection(['i1', 'i2']);
     a.command('edit.copy');                       // objects copied AFTER the picture
     const beforeOld = a.store.objects.length;
+    /*
+     * Timed to the moment the notes are actually on the board, not to the end
+     * of a fixed wait. The old reading was "paste, sleep 120ms, look at the
+     * clock" - so it measured the sleep and whatever else the machine happened
+     * to be doing during it, and a busy Windows PC could fail it without the
+     * paste being any slower.
+     */
     const t0 = performance.now();
     firePaste(dt => dt.items.add(file));
-    await sleep(120);
-    r.freshnessCostMs = Math.round(performance.now() - t0);
+    let landedAt = null;
+    while (performance.now() - t0 < 3000) {
+      if (a.store.objects.length > beforeOld) { landedAt = performance.now(); break; }
+      await sleep(5);
+    }
+    r.freshnessCostMs = landedAt === null ? null : Math.round(landedAt - t0);
+    await sleep(120);                    // anything late would show up in the count below
     const afterOld = a.store.objects.slice(beforeOld);
     r.oldPictureLoses = afterOld.length === 2 && afterOld.every(o => o.type === 'note');
     r.oldPictureGot = afterOld.map(o => o.type).join(',') || '(nothing)';
@@ -9301,10 +9313,17 @@ module.exports.run = async (win, app) => {
     `fingerprint moved for a same-sized different picture: ${pasted.sameSizeDifferentPicture}, ` +
     `board copy correctly outranked: ${pasted.beatenBySameSizePicture} ` +
     `— comparing only the size would call this "no change"`);
+  /*
+   * Half a second is where a paste starts to feel like it hesitated. The work
+   * inside that is one full hash of a 1600x900 picture to decide whose copy is
+   * newer; a fast machine does it all in well under 100ms.
+   */
   check('deciding that costs no noticeable time',
-    pasted.freshnessCostMs < 400,
-    `${pasted.freshnessCostMs}ms from keypress to object on the board, including a full ` +
-    `1600x900 image hash and a 120ms deliberate wait`);
+    pasted.freshnessCostMs !== null && pasted.freshnessCostMs < 500,
+    pasted.freshnessCostMs === null
+      ? 'nothing landed on the board within three seconds of the paste'
+      : `${pasted.freshnessCostMs}ms from keypress to the objects on the board, including a full 1600x900 ` +
+        `image hash — allowed under 500ms`);
   check('the Edit menu\'s Paste obeys the same rule as Ctrl+V',
     pasted.menuPasteFollowsRule === true,
     `edit.paste gave ${pasted.menuPasteGot}, wanted text — the menu used to reach straight ` +
@@ -11034,6 +11053,659 @@ module.exports.run = async (win, app) => {
   check('light ink on a dark board, dark ink on a light one',
     greet.darkColour === '#f3f2f1' && greet.lightColour === '#201f1e',
     `dark board: ${greet.darkColour} (wanted #f3f2f1), light board: ${greet.lightColour} (wanted #201f1e)`);
+
+  /* ---- answer covers: hide an answer, lift it with a tap ---- */
+  const cover = await js(`
+    const a = window.app, it = a.interaction, sf = a.surface, s = a.settings;
+    const { Surface } = await import('app://board/js/core/surface.js');
+    const { pick, inBox } = await import('app://board/js/core/hit.js');
+    const r = {};
+    const was = { mouse: s.inkWithMouse, finger: s.inkWithFinger, autosave: s.autosave };
+    s.autosave = false;
+    a.newBoard(true); a.textEditor.cancel();
+    sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.cam.z = 1;
+    const rect = sf.canvas.getBoundingClientRect();
+    const ev = (type, x, y, buttons, id = 61) => ({ pointerId: id, pointerType: type, button: 0, buttons,
+      pressure: 0.5, clientX: rect.left + x, clientY: rect.top + y, shiftKey: false, altKey: false,
+      ctrlKey: false, metaKey: false });
+    const reset = () => { it.action = null; it.actionId = null; it.pointers.clear(); it.cancelHold(); };
+    const tap = (type, p) => { reset(); it.onDown(ev(type, p.x, p.y, 1)); it.onUp(ev(type, p.x, p.y, 0)); reset(); };
+    const px = (p) => {
+      sf.invalidate(); sf.draw();
+      const d = sf.ctx.getImageData(Math.round(p.x * sf.dpr), Math.round(p.y * sf.dpr), 1, 1).data;
+      return '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('');
+    };
+    const settle = () => { sf._fades.clear(); };
+
+    // a bit of "answer" underneath, so there is something to hide
+    a.store.add({ id: 'ans', type: 'text', x: -120, y: -30, w: 240, h: 60, text: 'x = 42', rotation: 0,
+                  color: '#201f1e', fontSize: 40, align: 'left', valign: 'top', font: 'ui', background: 'none' }, 'x');
+
+    a.command('insert.curtain');
+    const c = a.store.objects.find((o) => o.type === 'curtain');
+    r.made = !!c;
+    r.coverSelected = !!c && a.surface.selection.has(c.id) && a.surface.selection.size === 1;
+    r.startsCovered = !!c && c.revealed === false;
+    r.tool = a.tool;
+    // lie it straight over the answer
+    a.store.update(c.id, { x: -160, y: -50, w: 320, h: 100 }, 'x');
+    a.setSelection([]);
+    const mid = sf.cam.toScreen(-150, 0);          // the left end: bare cover, clear of its label
+    r.coveredPixel = px(mid);
+    r.objectsBefore = a.store.objects.length;
+
+    // --- the pen, tapping: lifts it and leaves no dot ---
+    a.setTool('pen'); s.inkWithMouse = 'yes';
+    tap('pen', mid);
+    r.penLifted = a.store.get(c.id).revealed === true;
+    r.penLeftNoInk = a.store.objects.length === r.objectsBefore;
+    r.undoLabel = a.store.undoStack[a.store.undoStack.length - 1]?.label;
+    r.fading = sf._fades.has(c.id);
+    // the fade runs its course and clears itself
+    const f = sf._fades.get(c.id);
+    if (f) sf.drawFades(sf.ctx, f.t0 + Surface.FADE_MS + 5);
+    r.fadeGone = !sf._fades.has(c.id);
+    settle();
+    r.liftedPixel = px(mid);
+    r.notPickable = pick(a.store, { x: -150, y: 0 }) === null ||
+      pick(a.store, { x: -150, y: 0 })?.id !== c.id;
+    r.notInMarquee = !inBox(a.store, { x: -400, y: -300, w: 800, h: 600 }).some((o) => o.id === c.id);
+    a.command('edit.selectAll');
+    r.notInSelectAll = !a.surface.selection.has(c.id) && a.surface.selection.has('ans');
+    a.setSelection([]);
+    a.setTool('pen');                  // select-all hands the board to Select
+    // a lifted cover is not in an export either
+    const shot = () => sf.renderTo({ x: -200, y: -80, w: 400, h: 160 }, 1, true).toDataURL('image/png');
+    const withLifted = shot();
+    const lifted = a.store.get(c.id);
+    a.store.doc.objects[c.id] = null; a.store.rev++;
+    const without = shot();
+    a.store.doc.objects[c.id] = lifted; a.store.rev++;
+    r.exportUntouched = withLifted === without;
+
+    // --- undo puts it back ---
+    a.command('undo');
+    r.undoCovers = a.store.get(c.id).revealed === false;
+    settle();
+    r.backPixel = px(mid);
+
+    // --- a real stroke across it is ink, not a reveal ---
+    reset();
+    it.onDown(ev('pen', mid.x, mid.y, 1));
+    for (let i = 1; i <= 8; i++) it.onMove(ev('pen', mid.x + i * 12, mid.y + i * 2, 1));
+    it.onUp(ev('pen', mid.x + 96, mid.y + 16, 0)); reset();
+    r.strokeKeptCover = a.store.get(c.id).revealed === false;
+    r.strokeInked = a.store.objects.length === r.objectsBefore + 1;
+    // and ink written on the cover does not get in the way of the tap that lifts it
+    tap('pen', { x: mid.x + 48, y: mid.y + 8 });
+    r.tapThroughInk = a.store.get(c.id).revealed === true;
+    a.command('undo'); settle();
+
+    // --- a finger that moves the board: a tap still lifts it, a drag does not ---
+    s.inkWithFinger = 'no';
+    const cam0 = { x: sf.cam.x, y: sf.cam.y };
+    reset();
+    it.onDown(ev('touch', mid.x, mid.y, 1));
+    for (let i = 1; i <= 6; i++) it.onMove(ev('touch', mid.x + i * 15, mid.y, 1));
+    it.onUp(ev('touch', mid.x + 90, mid.y, 0)); reset();
+    r.fingerDragKept = a.store.get(c.id).revealed === false;
+    a.store.update(c.id, { x: -160, y: -50 }, 'x');     // put it back where it was dragged from
+    sf.cam.x = cam0.x; sf.cam.y = cam0.y;
+    const cx0 = a.store.get(c.id).x;
+    tap('touch', mid);
+    r.fingerTapLifted = a.store.get(c.id).revealed === true;
+    r.fingerTapDidNotMove = a.store.get(c.id).x === cx0;
+    r.fingerOneUndo = a.store.undoStack[a.store.undoStack.length - 1]?.label === 'reveal';
+    a.command('undo'); settle();
+
+    // --- the laser: a tap lifts it, sweeping across it does not ---
+    a.setTool('laser');
+    reset();
+    it.onDown(ev('mouse', mid.x, mid.y, 1));
+    for (let i = 1; i <= 6; i++) it.onMove(ev('mouse', mid.x + i * 15, mid.y, 1));
+    it.onUp(ev('mouse', mid.x + 90, mid.y, 0)); reset();
+    r.laserSweepKept = a.store.get(c.id).revealed === false;
+    tap('mouse', mid);
+    r.laserTapLifted = a.store.get(c.id).revealed === true;
+    a.command('undo'); settle();
+    sf.laser.length = 0;
+
+    // --- Select picks it up instead, and its bar offers Reveal by name ---
+    a.setTool('select');
+    tap('mouse', mid);
+    r.selectSelects = a.surface.selection.has(c.id) && a.store.get(c.id).revealed === false;
+    a.syncUI();
+    const btn = document.querySelector('#ctxbar .reveal-btn');
+    r.barHasReveal = !!btn && /Reveal/.test(btn.textContent);
+    btn?.click();
+    r.barRevealed = a.store.get(c.id).revealed === true;
+    r.barDropsSelection = !a.surface.selection.has(c.id);
+    a.command('undo'); settle();
+
+    // --- a locked cover still lifts on a double-click ---
+    a.store.update(c.id, { locked: true }, 'x');
+    it.onDoubleClick({ clientX: rect.left + mid.x, clientY: rect.top + mid.y });
+    r.lockedDoubleClick = a.store.get(c.id).revealed === true;
+    a.command('undo'); a.store.update(c.id, { locked: false }, 'x'); settle();
+
+    // --- Cover answers again: every lifted one, as a single undo ---
+    const c2 = a.addCurtain();
+    a.revealCurtain(c.id); a.revealCurtain(c2.id); settle();
+    const depth = a.store.undoStack.length;
+    a.command('curtain.coverAll');
+    r.coverAll = !a.store.get(c.id).revealed && !a.store.get(c2.id).revealed;
+    r.coverAllOneUndo = a.store.undoStack.length === depth + 1;
+
+    // --- a board saved mid-lesson opens the way it was left ---
+    a.revealCurtain(c2.id); settle();
+    const saved = JSON.parse(JSON.stringify(a.store.toJSON()));
+    a.newBoard(true);
+    await a.loadBoard(saved);
+    r.roundTrip = a.store.get(c.id)?.revealed === false && a.store.get(c2.id)?.revealed === true;
+
+    s.inkWithMouse = was.mouse; s.inkWithFinger = was.finger; s.autosave = was.autosave;
+    if (was.finger === undefined) delete s.inkWithFinger;
+    a.setTool('select'); a.newBoard(true);
+    return r;
+  `);
+  check('an answer cover goes on from the Insert menu, selected and ready to size',
+    cover.made && cover.coverSelected && cover.startsCovered && cover.tool === 'select',
+    `made: ${cover.made}, selected on its own: ${cover.coverSelected}, covered: ${cover.startsCovered}, tool: ${cover.tool}`);
+  /* The cover's own indigo, or its faint white stripe over the same indigo -
+     either way nothing of the white board or the black answer shows. */
+  const isCover = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(String(hex).slice(i, i + 2), 16));
+    return r >= 0x50 && r <= 0x78 && g >= 0x55 && g <= 0x7c && b >= 0xc0 && b <= 0xd8;
+  };
+  check('it is solid: the board does not show through',
+    isCover(cover.coveredPixel),
+    `pixel over the cover: ${cover.coveredPixel}, wanted the cover's indigo (#5b5fc7, or #696dcc on a stripe)`);
+  check('a tap with the pen lifts it, and leaves no dot behind',
+    cover.penLifted && cover.penLeftNoInk && cover.undoLabel === 'reveal',
+    `lifted: ${cover.penLifted}, no new ink: ${cover.penLeftNoInk}, undo entry: "${cover.undoLabel}"`);
+  check('it melts away over a quarter-second rather than blinking out',
+    cover.fading && cover.fadeGone,
+    `fading straight after the tap: ${cover.fading}; gone once the fade has run: ${cover.fadeGone}`);
+  check('once lifted, the answer underneath is what you see',
+    !isCover(cover.liftedPixel),
+    `pixel after: ${cover.liftedPixel}, before: ${cover.coveredPixel}`);
+  check('a lifted cover cannot be clicked, boxed or select-all’d',
+    cover.notPickable && cover.notInMarquee && cover.notInSelectAll,
+    `click: ${cover.notPickable ? 'misses it' : 'HITS it'}, marquee: ${cover.notInMarquee ? 'skips it' : 'TAKES it'}, ` +
+    `select all: ${cover.notInSelectAll ? 'skips it' : 'TAKES it'}`);
+  check('and it is not in an export', cover.exportUntouched,
+    `export with the lifted cover matches one without it: ${cover.exportUntouched}`);
+  check('undo puts the cover back over the answer',
+    cover.undoCovers && isCover(cover.backPixel),
+    `covered again: ${cover.undoCovers}, pixel: ${cover.backPixel}`);
+  check('a real stroke across a cover is ink, not a reveal',
+    cover.strokeKeptCover && cover.strokeInked,
+    `cover still on: ${cover.strokeKeptCover}, stroke kept: ${cover.strokeInked}`);
+  check('ink written on a cover does not stop a tap lifting it',
+    cover.tapThroughInk, `lifted through the ink: ${cover.tapThroughInk}`);
+  check('a finger that moves the board: a tap lifts the cover, a drag leaves it on',
+    cover.fingerDragKept && cover.fingerTapLifted && cover.fingerTapDidNotMove && cover.fingerOneUndo,
+    `drag kept it: ${cover.fingerDragKept}, tap lifted it: ${cover.fingerTapLifted}, ` +
+    `tap did not nudge it: ${cover.fingerTapDidNotMove}, one undo entry: ${cover.fingerOneUndo}`);
+  check('the laser: a tap lifts it, sweeping across it does not',
+    cover.laserTapLifted && cover.laserSweepKept,
+    `sweep kept it: ${cover.laserSweepKept}, tap lifted it: ${cover.laserTapLifted}`);
+  check('Select picks a cover up, and its bar has a Reveal button that lifts it',
+    cover.selectSelects && cover.barHasReveal && cover.barRevealed && cover.barDropsSelection,
+    `selected: ${cover.selectSelects}, Reveal on the bar: ${cover.barHasReveal}, ` +
+    `pressing it lifts it: ${cover.barRevealed}, and lets go of it: ${cover.barDropsSelection}`);
+  check('a locked cover still lifts on a double-click',
+    cover.lockedDoubleClick, `lifted: ${cover.lockedDoubleClick}`);
+  check('Cover answers again puts every lifted cover back, as one undo',
+    cover.coverAll && cover.coverAllOneUndo,
+    `all covered: ${cover.coverAll}, one undo entry: ${cover.coverAllOneUndo}`);
+  check('a board saved mid-lesson opens with the same answers showing',
+    cover.roundTrip, `round trip kept which covers were lifted: ${cover.roundTrip}`);
+
+  /* ---- writing ON a cover belongs to the cover; writing near it does not ---- */
+  const onCover = await js(`
+    const a = window.app, it = a.interaction, sf = a.surface, s = a.settings;
+    const { pick } = await import('app://board/js/core/hit.js');
+    const r = {};
+    const was = { mouse: s.inkWithMouse, autosave: s.autosave };
+    s.autosave = false; s.inkWithMouse = 'yes';
+    a.newBoard(true); a.textEditor.cancel();
+    sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.cam.z = 1;
+    const rect = sf.canvas.getBoundingClientRect();
+    const ev = (x, y, buttons) => ({ pointerId: 62, pointerType: 'pen', button: 0, buttons, pressure: 0.5,
+      clientX: rect.left + x, clientY: rect.top + y, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false });
+    const reset = () => { it.action = null; it.actionId = null; it.pointers.clear(); it.cancelHold(); };
+    // a stroke between two WORLD points, sampled along the way
+    const draw = (x0, y0, x1, y1) => {
+      reset();
+      const n = 12, p = (i) => sf.cam.toScreen(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n);
+      it.onDown(ev(p(0).x, p(0).y, 1));
+      for (let i = 1; i <= n; i++) it.onMove(ev(p(i).x, p(i).y, 1));
+      it.onUp(ev(p(n).x, p(n).y, 0)); reset();
+      const id = a.store.doc.order[a.store.doc.order.length - 1];
+      return a.store.get(id);
+    };
+    const settle = () => sf._fades.clear();
+
+    const c = a.addCurtain();
+    a.store.update(c.id, { x: -200, y: -60, w: 400, h: 120 }, 'x');
+    a.setSelection([]);
+    a.setTool('pen');
+
+    const onIt = draw(-150, -20, -40, 20);           // wholly on the card
+    const inFrom = draw(-400, 0, -100, 0);           // starts off it, ends on it
+    const outFrom = draw(150, 0, 500, 40);           // starts on it, runs mostly off
+    const beside = draw(-180, 100, 180, 100);        // under the card, not touching
+    r.onItOwned = onIt?.attachedTo === c.id;
+    r.inFromOwned = inFrom?.attachedTo || null;
+    r.outFromOwned = outFrom?.attachedTo || null;
+    r.besideOwned = beside?.attachedTo || null;
+
+    const depth = a.store.undoStack.length;
+    a.revealCurtain(c.id);
+    r.oneUndo = a.store.undoStack.length === depth + 1;
+    r.onItHidden = a.store.get(onIt.id).hidden === true;
+    r.othersShown = ![inFrom, outFrom, beside].some((o) => a.store.get(o.id).hidden);
+    r.onItFades = sf._fades.has(onIt.id);
+    settle();
+    // gone from the pointer and the eraser too
+    const mid = onIt.points[Math.floor(onIt.points.length / 2)];
+    r.onItUnpickable = pick(a.store, mid)?.id !== onIt.id;
+    // and from an export
+    const shot = () => sf.renderTo({ x: -220, y: -80, w: 440, h: 160 }, 1, true).toDataURL('image/png');
+    const withHidden = shot();
+    const keep = a.store.get(onIt.id);
+    a.store.doc.objects[onIt.id] = null; a.store.rev++;
+    r.exportUntouched = withHidden === shot();
+    a.store.doc.objects[onIt.id] = keep; a.store.rev++;
+
+    a.command('undo'); settle();
+    r.undoBoth = a.store.get(c.id).revealed === false && !a.store.get(onIt.id).hidden;
+
+    // moving the card carries what is written on it
+    a.setTool('select');
+    const grab = sf.cam.toScreen(160, -45);          // a corner of the card with nothing on it
+    const x0 = a.store.get(onIt.id).points[0].x;
+    reset();
+    const mev = (x, y, b) => ({ ...ev(x, y, b), pointerType: 'mouse', pointerId: 63 });
+    it.onDown(mev(grab.x, grab.y, 1));
+    for (let i = 1; i <= 5; i++) it.onMove(mev(grab.x + i * 10, grab.y, 1));
+    it.onUp(mev(grab.x + 50, grab.y, 0)); reset();
+    r.cardMoved = Math.round(a.store.get(c.id).x - (-200));
+    r.inkRode = Math.round(a.store.get(onIt.id).points[0].x - x0);
+
+    // dragging the ink itself off the card lets go of it
+    a.setSelection([onIt.id], false, { whole: false });
+    const from = sf.cam.toScreen(a.store.get(onIt.id).points[0].x, a.store.get(onIt.id).points[0].y);
+    reset();
+    it.onDown(mev(from.x, from.y, 1));
+    for (let i = 1; i <= 10; i++) it.onMove(mev(from.x, from.y + i * 30, 1));
+    it.onUp(mev(from.x, from.y + 300, 0)); reset();
+    r.draggedOffReleased = !a.store.get(onIt.id).attachedTo;
+    a.setSelection([]);
+    a.revealCurtain(c.id); settle();
+    r.draggedOffStays = !a.store.get(onIt.id).hidden;
+
+    // Cover answers again brings a card's own writing back with it
+    a.command('curtain.coverAll');
+    a.setTool('pen');
+    const fresh = draw(-100, -10, 0, 10);
+    r.freshOwned = fresh?.attachedTo === c.id;
+    a.revealCurtain(c.id); settle();
+    a.command('curtain.coverAll');
+    r.coverAgainShows = !a.store.get(fresh.id).hidden;
+
+    // locking a card does not sweep up the ink round about it
+    const near = draw(180, -30, 320, -30);           // half on, half off, drawn after
+    a.setSelection([c.id]); a.command('edit.lock'); a.setSelection([]);
+    r.lockAdopted = a.store.get(near.id).attachedTo || null;
+
+    s.inkWithMouse = was.mouse; s.autosave = was.autosave;
+    a.setTool('select'); a.newBoard(true);
+    return r;
+  `);
+  check('ink written on a cover belongs to it',
+    onCover.onItOwned, `stroke drawn wholly on the card owned by it: ${onCover.onItOwned}`);
+  check('ink that only strays onto a cover does not',
+    onCover.inFromOwned === null && onCover.outFromOwned === null && onCover.besideOwned === null,
+    `started off and ran on: ${onCover.inFromOwned || 'free'}; started on and ran mostly off: ` +
+    `${onCover.outFromOwned || 'free'}; drawn beside it: ${onCover.besideOwned || 'free'} — anything taken ` +
+    `wrongly vanishes from the board when the card is lifted`);
+  check('lifting the cover takes its writing with it, and nothing else',
+    onCover.onItHidden && onCover.othersShown && onCover.onItFades && onCover.oneUndo,
+    `its ink hidden: ${onCover.onItHidden}, the rest still showing: ${onCover.othersShown}, ` +
+    `fades with the card: ${onCover.onItFades}, one undo step: ${onCover.oneUndo}`);
+  check('writing that went with the cover cannot be clicked or exported',
+    onCover.onItUnpickable && onCover.exportUntouched,
+    `click misses it: ${onCover.onItUnpickable}, export leaves it out: ${onCover.exportUntouched}`);
+  check('undo brings the cover and its writing back together',
+    onCover.undoBoth, `both back: ${onCover.undoBoth}`);
+  check('moving the cover carries what is written on it',
+    onCover.cardMoved === 50 && onCover.inkRode === 50,
+    `card moved ${onCover.cardMoved}, its ink moved ${onCover.inkRode} (both should be 50)`);
+  check('ink dragged off its cover no longer belongs to it',
+    onCover.draggedOffReleased && onCover.draggedOffStays,
+    `let go: ${onCover.draggedOffReleased}, still showing after the card is lifted: ${onCover.draggedOffStays}`);
+  check('Cover answers again brings a card’s own writing back too',
+    onCover.freshOwned && onCover.coverAgainShows,
+    `owned: ${onCover.freshOwned}, showing again: ${onCover.coverAgainShows}`);
+  check('locking a cover does not claim the ink around it',
+    onCover.lockAdopted === null, `ink half on the card after locking: ${onCover.lockAdopted || 'free'}`);
+
+  /* ---- presenting: the board, the whole screen, and the page keys ---- */
+  const presentSetup = await js(`
+    const a = window.app, sf = a.surface;
+    const r = {};
+    a.newBoard(true); a.textEditor.cancel();
+    await a.setPageSize('a4', 'landscape');
+    a.addPage(); a.addPage();
+    a.goToPage(0);
+    r.pages = a.pageCount;
+    // Full screen is asked for, but this window must not actually go there.
+    window.__fs = 0;
+    document.documentElement.requestFullscreen = function () { window.__fs++; return Promise.resolve(); };
+    r.hBefore = sf.height;
+    r.wBefore = sf.width;
+    a.onKeyDown(new KeyboardEvent('keydown', { key: 'F5', cancelable: true }));
+    r.presenting = a.presenting;
+    r.asked = window.__fs;
+    r.bodyClass = document.body.classList.contains('presenting');
+    const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none'; };
+    r.topbar = shown('topbar'); r.pagebar = shown('pagebar'); r.zoombar = shown('zoombar');
+    r.presentbar = shown('presentbar');
+    r.toolbarInert = getComputedStyle(document.getElementById('toolbar')).pointerEvents === 'none';
+    return r;
+  `);
+  await sleep(450);
+  const present = await js(`
+    const a = window.app, sf = a.surface;
+    const r = {};
+    const tb = document.getElementById('toolbar').getBoundingClientRect();
+    r.toolbarBelow = tb.top >= window.innerHeight - 2;
+    r.toolbarTop = Math.round(tb.top); r.vh = window.innerHeight;
+    sf.resize(true);
+    r.hAfter = sf.height;
+    const key = (k) => a.onKeyDown(new KeyboardEvent('keydown', { key: k, cancelable: true }));
+    const at = () => a.currentPageIndex();
+    r.start = at();
+    // the page on show fills the window: its sheet is centred
+    const rects = (await import('app://board/js/core/pages.js')).pageRects(a.pages);
+    const centre = (i) => { const q = rects[i]; const c = sf.cam.toScreen(q.x + q.w / 2, q.y + q.h / 2); return [Math.round(c.x - sf.width / 2), Math.round(c.y - sf.height / 2)]; };
+    r.startCentred = centre(0);
+    key('PageDown'); r.pd = at();
+    r.label = document.getElementById('presentLabel').textContent;
+    key('ArrowRight'); r.ar = at();
+    r.centred3 = centre(2);
+    key('ArrowRight'); r.pastEnd = at();
+    r.nextDisabled = document.querySelector('#presentbar [data-present="next"]').disabled;
+    key('ArrowLeft'); r.al = at();
+    key('PageUp'); r.pu = at();
+    // Space pans; it never turns the page
+    key(' ');
+    r.afterSpace = at();
+    a.interaction.spaceDown = false;
+    // with something selected the arrows nudge it instead
+    const q = rects[0];
+    a.store.add({ id: 'pnote', type: 'note', x: q.x + 100, y: q.y + 100, w: 200, h: 200, color: '#ffd94a',
+                  text: '', rotation: 0, align: 'center', font: 'hand' }, 'x');
+    a.setSelection(['pnote']);
+    const x0 = a.store.get('pnote').x;
+    key('ArrowRight');
+    r.nudged = a.store.get('pnote').x > x0;
+    r.pageAfterNudge = at();
+    // Page Down still turns pages with a selection - it never nudged anything
+    key('PageDown'); r.pdWithSelection = at();
+    a.setSelection([]);
+    a.goToPage(0);
+
+    // the tools come up at the bottom edge, and go when the pointer leaves
+    const move = (y, buttons = 0) => document.dispatchEvent(new PointerEvent('pointermove',
+      { clientX: 300, clientY: y, buttons, bubbles: true }));
+    move(window.innerHeight - 10); r.edgeShows = document.body.classList.contains('show-tools');
+    move(80); r.awayHides = !document.body.classList.contains('show-tools');
+    move(window.innerHeight - 10, 1); r.inkingNoShow = !document.body.classList.contains('show-tools');
+    // pinned from the corner bar, they stay
+    document.querySelector('#presentbar [data-present="tools"]').click();
+    move(80); r.pinnedStays = document.body.classList.contains('show-tools');
+    document.querySelector('#presentbar [data-present="tools"]').click();
+    r.unpinned = !document.body.classList.contains('show-tools');
+
+    // Escape: out, and everything is back
+    key('Escape');
+    r.escOut = !a.presenting && !document.body.classList.contains('presenting');
+    const shown = (id) => getComputedStyle(document.getElementById(id)).display !== 'none';
+    r.topbarBack = shown('topbar'); r.pagebarBack = shown('pagebar');
+    r.presentbarGone = document.getElementById('presentbar').hidden;
+    sf.resize(true);
+    r.hBack = sf.height;
+
+    // leaving full screen by any route ends presenting too
+    a.startPresenting();
+    r.fsAsked = a._presentFullscreen === true;
+    document.dispatchEvent(new Event('fullscreenchange'));
+    r.fsExitStops = !a.presenting;
+
+    // an infinite board: clean full screen, and the page keys do nothing
+    a.newBoard(true); a.textEditor.cancel();
+    a.startPresenting({ fullscreen: false });
+    const cam = { x: sf.cam.x, y: sf.cam.y, z: sf.cam.z };
+    key('PageDown'); key('ArrowRight');
+    r.infiniteStill = sf.cam.x === cam.x && sf.cam.y === cam.y && sf.cam.z === cam.z;
+    r.infiniteNoPageButtons = document.querySelector('#presentbar [data-present="next"]').hidden
+      && document.getElementById('presentLabel').hidden;
+    a.stopPresenting();
+    delete document.documentElement.requestFullscreen;
+    return r;
+  `);
+  check('F5 presents: the bars go and full screen is asked for',
+    presentSetup.presenting && presentSetup.bodyClass && presentSetup.asked === 1 &&
+    !presentSetup.topbar && !presentSetup.pagebar && !presentSetup.zoombar && presentSetup.presentbar,
+    `presenting: ${presentSetup.presenting}, full screen asked ${presentSetup.asked} time(s); still showing — ` +
+    `top bar: ${presentSetup.topbar}, page bar: ${presentSetup.pagebar}, zoom bar: ${presentSetup.zoombar}; ` +
+    `corner bar showing: ${presentSetup.presentbar}`);
+  check('the toolbar is tucked below the bottom edge, not left in the way',
+    presentSetup.toolbarInert && present.toolbarBelow,
+    `takes presses: ${!presentSetup.toolbarInert}; its top at ${present.toolbarTop} in a ${present.vh}px window`);
+  check('and the board gets the room the bars had',
+    present.hAfter > presentSetup.hBefore,
+    `canvas ${presentSetup.hBefore}px tall before, ${present.hAfter}px while presenting`);
+  check('Page Down and the arrows step through the pages, each one filling the window',
+    presentSetup.pages === 3 && present.start === 0 && present.pd === 1 && present.ar === 2 &&
+    present.pastEnd === 2 && present.al === 1 && present.pu === 0 &&
+    Math.abs(present.centred3[0]) <= 1 && Math.abs(present.centred3[1]) <= 1,
+    `pages ${presentSetup.pages}; went ${present.start} → PgDn ${present.pd} → Right ${present.ar} → ` +
+    `Right again ${present.pastEnd} → Left ${present.al} → PgUp ${present.pu}; page 3 sits ` +
+    `${present.centred3.join(',')}px off centre`);
+  check('the corner bar says which page, and stops at the last',
+    present.label === '2 / 3' && present.nextDisabled,
+    `label "${present.label}" on page 2, next disabled on the last: ${present.nextDisabled}`);
+  check('Space never turns the page — it pans',
+    present.afterSpace === 0, `page after Space: ${present.afterSpace + 1}`);
+  check('with something selected the arrows nudge it; Page Down still turns the page',
+    present.nudged && present.pageAfterNudge === 0 && present.pdWithSelection === 1,
+    `nudged: ${present.nudged}, page after the arrow: ${present.pageAfterNudge + 1}, ` +
+    `after Page Down: ${present.pdWithSelection + 1}`);
+  check('the tools come up at the bottom edge and go again, but not under a pen that is writing',
+    present.edgeShows && present.awayHides && present.inkingNoShow,
+    `at the edge: ${present.edgeShows}, moved away: ${present.awayHides ? 'hidden' : 'STILL UP'}, ` +
+    `writing along the bottom: ${present.inkingNoShow ? 'stays tucked' : 'POPPED UP'}`);
+  check('the corner bar can pin the tools up for a touchscreen',
+    present.pinnedStays && present.unpinned,
+    `pinned stays up: ${present.pinnedStays}, unpinned tucks away: ${present.unpinned}`);
+  check('Escape finishes, and every bar comes back',
+    present.escOut && present.topbarBack && present.pagebarBack && present.presentbarGone &&
+    present.hBack === presentSetup.hBefore,
+    `out: ${present.escOut}, top bar: ${present.topbarBack}, page bar: ${present.pagebarBack}, ` +
+    `corner bar gone: ${present.presentbarGone}, canvas ${present.hBack}px (was ${presentSetup.hBefore})`);
+  check('leaving full screen by any route ends presenting',
+    present.fsAsked && present.fsExitStops, `asked: ${present.fsAsked}, stopped: ${present.fsExitStops}`);
+  check('an infinite board presents clean, and the page keys leave it alone',
+    present.infiniteStill && present.infiniteNoPageButtons,
+    `camera unmoved: ${present.infiniteStill}, page buttons hidden: ${present.infiniteNoPageButtons}`);
+
+  /* ---- the class timer ---- */
+  const timer = await js(`
+    const a = window.app, t = a.timer;
+    const { formatClock } = await import('app://board/js/ui/timer.js');
+    const r = {};
+    let T = 1000, chimes = 0;
+    const realNow = t.now, realChime = t.chime;
+    t.now = () => T; t.chime = () => { chimes++; };
+    const el = () => document.getElementById('classTimer');
+    const s0 = () => a.settings.timerBox;
+    const digits = () => el()?.querySelector('.ct-digits')?.textContent;
+    r.formats = [formatClock(300000), formatClock(59001), formatClock(600000), formatClock(0), formatClock(-5)];
+
+    a.command('timer.open');
+    r.opens = !!el() && t.state === 'idle' && t.picking;
+    r.presets = [...el().querySelectorAll('.ct-preset')].map((b) => b.dataset.minutes).join(',');
+    el().querySelector('.ct-preset[data-minutes="5"]').click();
+    r.starts = digits();
+    T += 61000; t.tick(); r.after61 = digits();
+    // redrawn from scratch after the wait, so a paused clock that quietly kept
+    // counting would show it
+    t.pause(); T += 100000; t.tick(); t.render(); r.pausedHolds = digits();
+    t.resume(); T += 1000; t.tick(); r.resumed = digits();
+    el().querySelector('.ct-more').click(); r.plusOne = digits();
+    // a board switch does not stop it
+    a.newBoard(true); a.textEditor.cancel();
+    r.survivesBoardSwitch = !!el() && t.state === 'running';
+    r.notInBoard = !JSON.stringify(a.store.toJSON()).includes('classTimer');
+    // run it out
+    T += 10 * 60000; t.tick();
+    r.done = t.state === 'done' && el().classList.contains('ct-done') && digits() === '0:00';
+    r.chimes = chimes;
+    t.tick(); T += 5000; t.tick();
+    r.chimesOnce = chimes;
+    // one more minute after time is up starts a fresh one
+    el().querySelector('.ct-more').click();
+    r.moreAfterDone = t.state === 'running' && digits() === '1:00';
+    el().querySelector('.ct-close').click();
+    r.closed = !el() && t.state === 'closed' && t._tick === null;
+
+    // --- choosing another time does not stop the one that is running ---
+    a.command('timer.open');
+    el().querySelector('.ct-preset[data-minutes="5"]').click();
+    T += 10000; t.tick();
+    el().querySelector('.ct-reset')?.click();
+    r.pickingKeepsRunning = t.picking && t.state === 'running' && !!el().querySelector('.ct-preset');
+    T += 20000; t.tick();
+    r.stillCounting = el().querySelector('.ct-now-digits')?.textContent;
+    el().querySelector('.ct-keep')?.click();
+    r.keptDigits = digits();
+    r.keptBack = !t.picking && t.state === 'running';
+    el().querySelector('.ct-reset')?.click();
+    el().querySelector('.ct-preset[data-minutes="3"]')?.click();
+    r.replaced = digits();
+
+    // --- the last thirty seconds are red ---
+    t.start({ ms: 45000 });
+    T += 14000; t.tick();
+    r.at31 = [digits(), el().classList.contains('ct-low')];
+    T += 2000; t.tick();
+    r.at29 = [digits(), el().classList.contains('ct-low')];
+    r.redInk = getComputedStyle(el().querySelector('.ct-digits')).color;
+    t.pause();
+    r.pausedLowStaysRed = el().classList.contains('ct-low');
+    t.resume();
+
+    // --- any length, typed ---
+    t.chooseAnother();
+    const input = () => el().querySelector('.ct-input');
+    const type = (v) => {
+      input().value = v;
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    };
+    type('soon');
+    r.badRefused = t.picking && input().classList.contains('ct-bad') && t.state === 'running';
+    type('7:30');
+    r.typed730 = digits();
+    t.chooseAnother(); type('1h 5m');
+    r.typedHour = digits();
+    t.chooseAnother(); el().querySelector('.ct-input').value = '90s'; el().querySelector('.ct-go').click();
+    r.typed90s = digits();
+
+    // --- it moves, it resizes, and it remembers where it was put ---
+    const card = el();
+    const b0 = { ...t.box };
+    const pe = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type,
+      { pointerId: 44, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, bubbles: true }));
+    const dg = card.querySelector('.ct-digits');
+    pe('pointerdown', dg, 100, 100);
+    for (let i = 1; i <= 6; i++) pe('pointermove', card, 100 + i * 20, 100 + i * 10);
+    pe('pointerup', card, 220, 160);
+    dg.click();                                       // the click a drag ends with
+    r.moved = [Math.round(t.box.x - b0.x), Math.round(t.box.y - b0.y)];
+    r.leftStyle = card.style.left === t.box.x + 'px';
+    r.dragDidNotPause = t.state === 'running';
+    const grip = card.querySelector('.ct-resize');
+    const w0 = card.offsetWidth;
+    pe('pointerdown', grip, 300, 300);
+    pe('pointermove', card, 300 + w0, 300);
+    pe('pointerup', card, 300 + w0, 300);
+    r.scale = +t.box.scale.toFixed(2);
+    r.scaledStyle = card.style.transform;
+    r.remembered = !!s0() && Math.round(s0().x) === Math.round(t.box.x) && +s0().scale.toFixed(2) === r.scale;
+    // dragged far off the edge, a corner of it stays on screen to drag back
+    pe('pointerdown', dg, 100, 100);
+    pe('pointermove', card, -5000, -5000);
+    pe('pointerup', card, -5000, -5000);
+    const cr = card.getBoundingClientRect(), sr = document.getElementById('stage').getBoundingClientRect();
+    r.stillReachable = cr.right > sr.left + 20 && cr.bottom > sr.top + 20;
+    t.box = { ...b0 }; a.settings.timerBox = { ...b0 }; t.place();
+    t.close();
+    t.now = realNow; t.chime = realChime;
+    return r;
+  `);
+  check('the clock reads the way a clock does',
+    timer.formats.join(' ') === '5:00 1:00 10:00 0:00 0:00', timer.formats.join(' '));
+  check('the class timer opens on its presets: 1, 3, 5 and 10 minutes',
+    timer.opens && timer.presets === '1,3,5,10', `opened: ${timer.opens}, presets: ${timer.presets}`);
+  check('it counts down from what you chose',
+    timer.starts === '5:00' && timer.after61 === '3:59',
+    `started at ${timer.starts}, 61 seconds later ${timer.after61}`);
+  check('pause holds it, and carrying on picks up where it stopped',
+    timer.pausedHolds === '3:59' && timer.resumed === '3:58',
+    `paused 100s: ${timer.pausedHolds}; one second after carrying on: ${timer.resumed}`);
+  check('one more minute adds a minute', timer.plusOne === '4:58', `now ${timer.plusOne}`);
+  check('it keeps running across a board switch, and is not part of any board',
+    timer.survivesBoardSwitch && timer.notInBoard,
+    `still running: ${timer.survivesBoardSwitch}, kept out of the board: ${timer.notInBoard}`);
+  check('at zero it chimes once and shows it is done',
+    timer.done && timer.chimes === 1 && timer.chimesOnce === 1,
+    `done: ${timer.done}, chimes at zero: ${timer.chimes}, after two more ticks: ${timer.chimesOnce}`);
+  check('choosing another time leaves the running one going until a new one is picked',
+    timer.pickingKeepsRunning && timer.stillCounting === '4:30' && timer.keptDigits === '4:30' && timer.keptBack &&
+    timer.replaced === '3:00',
+    `still running under the list: ${timer.pickingKeepsRunning}, counting meanwhile: ${timer.stillCounting} ` +
+    `(wanted 4:30), after Keep this one: ${timer.keptDigits} and back: ${timer.keptBack}; picking 3 min shows ${timer.replaced}`);
+  check('the last thirty seconds are red',
+    timer.at31[0] === '0:31' && !timer.at31[1] && timer.at29[0] === '0:29' && timer.at29[1] &&
+    timer.redInk === 'rgb(209, 52, 56)' && timer.pausedLowStaysRed,
+    `at ${timer.at31[0]} red: ${timer.at31[1]}; at ${timer.at29[0]} red: ${timer.at29[1]}; digit colour ` +
+    `${timer.redInk}; paused in the last 30s still red: ${timer.pausedLowStaysRed}`);
+  check('any length can be typed, and nonsense is refused without stopping the clock',
+    timer.badRefused && timer.typed730 === '7:30' && timer.typedHour === '1:05:00' && timer.typed90s === '1:30',
+    `"soon" refused: ${timer.badRefused}; "7:30" → ${timer.typed730}; "1h 5m" → ${timer.typedHour}; ` +
+    `"90s" → ${timer.typed90s}`);
+  check('the clock can be dragged anywhere, and a drag never pauses it',
+    timer.moved[0] === 120 && timer.moved[1] === 60 && timer.leftStyle && timer.dragDidNotPause,
+    `moved by ${timer.moved.join(',')} (wanted 120,60), drawn there: ${timer.leftStyle}, still running: ${timer.dragDidNotPause}`);
+  check('dragging its corner resizes it, and where and how big it is are remembered',
+    timer.scale >= 1.9 && timer.scale <= 2.1 && /scale\(/.test(timer.scaledStyle) && timer.remembered,
+    `scale ${timer.scale} after dragging the corner one width out (wanted about 2), style "${timer.scaledStyle}", ` +
+    `saved in settings: ${timer.remembered}`);
+  check('dragged off the edge, part of it stays on screen to drag back',
+    timer.stillReachable, `reachable: ${timer.stillReachable}`);
+  check('one more minute after time is up starts a fresh minute; closing stops it',
+    timer.moreAfterDone && timer.closed,
+    `fresh minute: ${timer.moreAfterDone}, closed and stopped ticking: ${timer.closed}`);
+  {
+    const sw = await fs.readFile(path.join(__dirname, '..', 'src', 'sw.js'), 'utf8');
+    const missing = ['./js/ui/present.js', './js/ui/timer.js'].filter((f) => !sw.includes(`'${f}'`));
+    check('the web version keeps the teaching kit for offline use',
+      missing.length === 0, missing.length ? `sw.js does not precache ${missing.join(', ')}` : 'both precached');
+  }
 
   /* ---- finding LibreOffice, including on a drive that is not C ---- */
   {

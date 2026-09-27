@@ -28,6 +28,11 @@ export function showContextMenu(app, e, fromSelectionBar = false) {
 
   const menu = h('div', { class: 'menu' });
   const allLocked = has && app.selected.every((o) => o.locked);
+  // Lifting a cover is the one thing a cover is for, so it leads - locked or not.
+  if (has && app.selected.some((o) => o.type === 'curtain' && !o.revealed)) {
+    menu.appendChild(item('Reveal', 'eye', () => app.command('curtain.reveal')));
+    menu.appendChild(h('div', { class: 'menu-sep' }));
+  }
 
   if (allLocked) {
     menu.appendChild(item('Unlock', 'unlock', () => app.command('edit.lock')));
@@ -100,6 +105,18 @@ export function updateSelectionBar(app) {
   bar.innerHTML = '';
   const types = new Set(sel.map((o) => o.type));
   const allLocked = sel.every((o) => o.locked);
+  /*
+   * An answer cover gets a Reveal button with its name on it rather than an
+   * icon alone: it is pressed in front of a class, and a teacher hunting for
+   * the right little eye is the pause this whole feature exists to remove.
+   */
+  const covers = sel.filter((o) => o.type === 'curtain' && !o.revealed);
+  const revealBtn = () => {
+    const b = h('button', { title: 'Reveal what is underneath', class: 'reveal-btn', html: icon('eye', 17) });
+    b.insertAdjacentHTML('beforeend', '<span>Reveal</span>');
+    b.addEventListener('click', () => app.command('curtain.reveal'));
+    return b;
+  };
 
   if (allLocked) {
     const label = h('span', { style: 'display:flex;align-items:center;gap:6px;padding:0 8px;font-size:12.5px;color:var(--text-2)' },
@@ -113,6 +130,7 @@ export function updateSelectionBar(app) {
     unlock.style.display = 'flex';
     unlock.style.alignItems = 'center';
     bar.appendChild(unlock);
+    if (covers.length) bar.appendChild(revealBtn());
     appendMoreActions(app, bar);
     placeBar(bar, box);
     return;
@@ -136,6 +154,8 @@ export function updateSelectionBar(app) {
     swatch.addEventListener('click', () => openColorPopover(app, swatch, type, sel));
     bar.appendChild(swatch);
   }
+
+  if (covers.length) bar.appendChild(revealBtn());
 
   if ([...types].every((t) => ['note', 'text', 'shape', 'table'].includes(t)) && sel.length === 1)
     bar.appendChild(mk('Edit text (F2)', 'text', () => app.beginTextEdit(sel[0])));

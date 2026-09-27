@@ -257,7 +257,8 @@ function initPhoneToolbar(app, bar) {
       h('div', { class: 'menu-sep' }),
       menuItem('Picture…', 'image', () => app.command('insert.image')),
       menuItem('Document (Word, PowerPoint, PDF)…', 'doc', () => app.command('insert.document')),
-      menuItem('Table', 'table', () => app.command('insert.table'))
+      menuItem('Table', 'table', () => app.command('insert.table')),
+      menuItem('Answer cover', 'curtain', () => app.command('insert.curtain'))
     ), { key: 'add' });
   });
 
@@ -271,6 +272,8 @@ function initPhoneToolbar(app, bar) {
       menuItem('Lasso select', 'lasso', pickTool('lasso')),
       menuItem('Move the board', 'hand', pickTool('pan')),
       menuItem('Laser pointer', 'laser', pickTool('laser')),
+      h('div', { class: 'menu-sep' }),
+      ...teachingItems(app),
       h('div', { class: 'menu-sep' }),
       menuItem('Boards…', 'board', () => app.panels.boards()),
       menuItem('Templates…', 'template', () => app.panels.templates()),
@@ -297,11 +300,12 @@ function wireTopBar(app) {
     ['btnTemplates', 'template', () => app.panels.templates()],
     ['btnBackground', 'palette', () => app.panels.background()],
     ['btnExport', 'export', (e) => openExportPopover(app, e.currentTarget)],
+    ['btnPresent', 'present', () => app.command('view.present')],
     ['btnShare', 'share', () => app.panels.sharing()],
     ['btnSettings', 'settings', () => app.panels.settings()],
     ['btnHelp', 'help', () => app.showShortcuts()]
   ];
-  const labels = { btnBoards: 'Boards', btnTemplates: 'Templates', btnBackground: 'Canvas', btnExport: 'Export' };
+  const labels = { btnBoards: 'Boards', btnTemplates: 'Templates', btnBackground: 'Canvas', btnExport: 'Export', btnPresent: 'Present' };
   for (const [id, ic, fn] of top) {
     const el = document.getElementById(id);
     // A build without sharing has no such button in the page, and asking for
@@ -693,11 +697,22 @@ function menuItem(label, iconName, onClick, opts = {}) {
   return b;
 }
 
+/** The teaching kit, the same three wherever a menu offers them. */
+function teachingItems(app) {
+  const lifted = app.store.objects.some((o) => o.type === 'curtain' && o.revealed);
+  return [
+    menuItem(app.presenting ? 'Stop presenting' : 'Present', 'present', () => app.command('view.present'), { key: app.presenting ? 'Esc' : 'F5' }),
+    menuItem(app.timer?.visible ? 'Close the class timer' : 'Class timer', 'timer', () => app.command('timer.open')),
+    menuItem('Cover answers again', 'curtain', () => app.command('curtain.coverAll'), { disabled: !lifted })
+  ];
+}
+
 export function openInsertPopover(app, anchor) {
   const body = h('div', { class: 'menu' },
     menuItem('Image…', 'image', () => app.command('insert.image')),
     menuItem('Document (Word, PowerPoint, PDF)…', 'doc', () => app.command('insert.document')),
     menuItem('Table', 'table', () => app.command('insert.table')),
+    menuItem('Answer cover', 'curtain', () => app.command('insert.curtain')),
     h('div', { class: 'menu-sep' }),
     menuItem('Paste from clipboard', 'copy', () => app.command('edit.paste'), { key: 'Ctrl+V' }),
     menuItem('Templates…', 'template', () => app.panels.templates())
@@ -710,6 +725,8 @@ export function openMorePopover(app, anchor) {
     menuItem('Templates…', 'template', () => app.panels.templates()),
     menuItem('Canvas…', 'palette', () => app.panels.background()),
     menuItem(app.ruler.visible ? 'Hide ruler' : 'Show ruler', 'ruler', () => app.command('ruler'), { key: 'Ctrl+R' }),
+    h('div', { class: 'menu-sep' }),
+    ...teachingItems(app),
     h('div', { class: 'menu-sep' }),
     menuItem('Select all', 'select', () => app.command('edit.selectAll'), { key: 'Ctrl+A' }),
     menuItem('Export as PNG…', 'export', () => app.command('export.png')),

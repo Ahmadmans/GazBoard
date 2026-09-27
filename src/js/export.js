@@ -4,7 +4,7 @@ import { worldBounds } from './core/store.js';
 import { pageRects } from './core/pages.js';
 import { wrapText } from './core/util.js';
 import { layoutPages } from './ui/pdfdialog.js';
-import { FONT, faceOf } from './core/render.js';
+import { FONT, faceOf, CURTAIN_COLOR } from './core/render.js';
 
 /**
  * What a bitmap or vector export covers.
@@ -79,6 +79,7 @@ function buildSvg(app, box) {
   const meas = document.createElement('canvas').getContext('2d');
 
   for (const o of app.store.objects) {
+    if (o.hidden) continue;       // written on a cover that has been lifted
     const b = worldBounds(o);
     const rot = o.rotation ? ` transform="rotate(${(o.rotation * 180) / Math.PI} ${b.x + b.w / 2} ${b.y + b.h / 2})"` : '';
     if (o.type === 'stroke') {
@@ -105,6 +106,11 @@ function buildSvg(app, box) {
       parts.push(`<text x="${o.x + o.w / 2}" y="${o.y + o.h / 2}" font-size="${size}" text-anchor="middle" dominant-baseline="central" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"${rot}>${esc(o.ch || '')}</text>`);
     } else if (o.type === 'image') {
       parts.push(`<image x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" href="${o.src}" preserveAspectRatio="none"${rot}/>`);
+    } else if (o.type === 'curtain') {
+      // a lifted cover is not on the board, so it is not in the picture either
+      if (!o.revealed) {
+        parts.push(`<rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" rx="${Math.min(14, Math.abs(o.w) / 6, Math.abs(o.h) / 6)}" fill="${o.color || CURTAIN_COLOR}"${rot}/>`);
+      }
     } else if (o.type === 'table') {
       const cw = o.w / o.cols, ch = o.h / o.rows;
       parts.push(`<g${rot}><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" fill="${o.fill || '#fff'}"/>`);
