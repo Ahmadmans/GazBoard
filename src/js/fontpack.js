@@ -135,14 +135,14 @@ export async function loadInstalled() {
  * @param {(done:number,total:number) => void} [onProgress]
  * @returns {Promise<{ok:true,source:string}|{ok:false,error:string}>}
  */
-export async function download(id, { onProgress, sources = SOURCES, fetchImpl = fetch } = {}) {
+export async function download(id, { onProgress, sources = SOURCES, fetchImpl = nativeFetch() || fetch } = {}) {
   const pack = PACKS[id];
   if (!pack) return { ok: false, error: t('Unknown font') };
   let lastError = t('No connection');
   for (const src of sources) {
     const url = src(pack.file);
     try {
-      const res = await fetchImpl(url, { cache: 'no-store' });
+      const res = await fetchImpl(url, { cache: 'no-store', onProgress });
       if (!res.ok) { lastError = t('Server replied {status}', { status: res.status }); continue; }
       const buf = await readWithProgress(res, pack.bytes, onProgress);
       if (!(await verify(pack, buf))) { lastError = t('The file that arrived was not the right one'); continue; }
@@ -150,10 +150,19 @@ export async function download(id, { onProgress, sources = SOURCES, fetchImpl = 
       await activate(pack, buf);
       return { ok: true, source: url };
     } catch (e) {
+      console.warn('[fonts]', url, e);
       lastError = t('No connection');
     }
   }
   return { ok: false, error: lastError };
+}
+
+/**
+ * Android's page is not allowed onto the internet at all, so there the app
+ * itself fetches (window.board.fetchFont). Everywhere else it is plain fetch.
+ */
+function nativeFetch() {
+  return (typeof window !== 'undefined' && typeof window.board?.fetchFont === 'function') ? window.board.fetchFont : null;
 }
 
 async function readWithProgress(res, expected, onProgress) {

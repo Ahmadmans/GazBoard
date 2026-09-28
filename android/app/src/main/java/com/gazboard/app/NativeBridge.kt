@@ -84,6 +84,9 @@ class NativeBridge(private val activity: MainActivity, private val web: WebView,
       "shell:openBoards" -> { event("showBoards", JsonNull); true }
       "shell:openExternal" -> activity.openReleases(str())
       "updates:check" -> activity.checkForUpdate()
+      "fonts:download" -> activity.downloadFont(str()) { got, total ->
+        event("fontProgress", json("got" to got, "total" to total))
+      }
       "clipboard:read" -> activity.readClipboard()
       // GazBoard's own theme can override the phone's. The page paints itself,
       // but the status bar, the navigation bar and the window behind the

@@ -1005,16 +1005,29 @@ export function createPanels(app) {
           if (!r.ok) b.disabled = false;
           fill();
         });
-        const picker = h('input', { type: 'file', accept: '.woff2', style: 'display:none' });
-        picker.addEventListener('change', async () => {
-          const f = picker.files && picker.files[0];
+        const install = async (f) => {
           if (!f) return;
           const r = await installFromFile(pack.id, f);
           app.toast(r.ok ? t('Chinese font installed — it works offline from now on') : r.error, r.ok ? 'check' : 'help', 6000);
           fill();
-        });
+        };
+        const picker = h('input', { type: 'file', accept: '.woff2', style: 'display:none' });
+        picker.addEventListener('change', () => install(picker.files && picker.files[0]));
         btns.appendChild(picker);
-        mk(t('Add a font file…'), 'fp-file', () => picker.click());
+        // An Android WebView ignores a file input unless the app answers for
+        // it, so there the phone's own picker is asked instead. No type filter:
+        // a downloaded .woff2 is often labelled as plain data and would be
+        // hidden; the fingerprint check refuses anything that is not the font.
+        const pickNative = async () => {
+          try {
+            const paths = await window.board.openDialog({ title: t('Add a font file…'), properties: ['openFile'] });
+            if (!paths?.length) return;
+            const buf = await window.board.readFile(paths[0]);
+            await install({ arrayBuffer: async () => buf });
+          } catch (e) { app.toast(e.message, 'help', 6000); }
+        };
+        mk(t('Add a font file…'), 'fp-file', () =>
+          document.documentElement.dataset.platform === 'android' ? pickNative() : picker.click());
       }
       host.appendChild(btns);
     };

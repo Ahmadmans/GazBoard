@@ -139,3 +139,68 @@ test('Choosing a theme tells Android, so the bars match the board', async () => 
     `Android was told ${JSON.stringify(seen)} — it must hear the choice itself, including ` +
     `"system", which is the one case where the phone decides rather than GazBoard`);
 });
+
+test('The Chinese font is fetched by Android, since the page may reach no website itself', async () => {
+  const url = 'https://cdn.jsdelivr.net/gh/fahim9778/GazBoard@main/fonts/gazboard-noto-sans-sc-400-v1.woff2';
+  const bytes = Buffer.from('not really a font');
+  const token = 'a'.repeat(32);
+  const seen = [];
+  const { adapter, calls, native } = await setup(async (request) => {
+    if (request.method === 'fonts:download') {
+      native.onmessage({ data: JSON.stringify({ event: 'fontProgress', result: { got: 5, total: bytes.length } }) });
+      return { ok: true, token };
+    }
+    if (request.method === 'blob:release') return true;
+    throw new Error('unexpected ' + request.method);
+  });
+  global.fetch = async (u) => ({ ok: u.endsWith(token), arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) });
+  const res = await adapter.fetchFont(url, { onProgress: (got, total) => seen.push([got, total]) });
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.deepEqual({ ok: res.ok, text: buf.toString(), asked: calls.find((c) => c.method === 'fonts:download')?.args, progress: seen },
+    { ok: true, text: 'not really a font', asked: url, progress: [[5, bytes.length]] },
+    `fetchFont answered ok=${res.ok} with "${buf}", asked Android for ${JSON.stringify(calls.map((c) => [c.method, c.args]))}, progress ${JSON.stringify(seen)}`);
+});
+
+test('A font server that says no, and a phone that cannot reach it, read like fetch() would', async () => {
+  let reply = { ok: false, status: 404 };
+  const { adapter } = await setup(async () => reply);
+  const said = await adapter.fetchFont('https://raw.githubusercontent.com/fahim9778/GazBoard/main/fonts/x.woff2');
+  assert.deepEqual({ ok: said.ok, status: said.status }, { ok: false, status: 404 },
+    `a 404 came back as ${JSON.stringify(said)} — it must say "Server replied 404", not "No connection"`);
+  reply = { ok: false, offline: true };
+  const err = await adapter.fetchFont('https://raw.githubusercontent.com/fahim9778/GazBoard/main/fonts/x.woff2').then(() => null, (e) => e);
+  assert.ok(err instanceof TypeError, `an unreachable server gave ${err} — fontpack.js counts a TypeError as "No connection"`);
+});
+
+test('fontpack.js uses the Android fetcher when there is one, and reports what it said', async () => {
+  global.window = { board: {} };
+  const { download, PACKS, SOURCES } = await import('../src/js/fontpack.js');
+  const asked = [];
+  window.board.fetchFont = async (url) => { asked.push(url); return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) }; };
+  const r = await download('sc');
+  assert.deepEqual({ r, asked }, { r: { ok: false, error: 'Server replied 404' }, asked: SOURCES.map((s) => s(PACKS.sc.file)) },
+    `download went ${JSON.stringify(r)} after asking ${JSON.stringify(asked)} — on Android the page's own fetch is always refused`);
+});
+
+test('Android allows exactly the font addresses fontpack.js asks for, and nothing else', async () => {
+  const fs = require('node:fs');
+  const kt = fs.readFileSync(require.resolve('../android/app/src/main/java/com/gazboard/app/MainActivity.kt'), 'utf8');
+  const { PACKS, SOURCES } = await import('../src/js/fontpack.js');
+  const bases = [...kt.matchAll(/"(https:\/\/[^"]+\/fonts\/)"/g)].map((m) => m[1]);
+  const pattern = new RegExp('^' + kt.match(/FONT_FILE = Regex\("([^"]+)"\)/)[1].replace(/\\\\/g, '\\') + '$');
+  const wanted = Object.values(PACKS).flatMap((p) => SOURCES.map((s) => s(p.file)));
+  const refused = wanted.filter((u) => { const b = bases.find((x) => u.startsWith(x)); return !b || !pattern.test(u.slice(b.length)); });
+  assert.deepEqual({ refused, strangerAllowed: pattern.test('../../etc/passwd') || pattern.test('evil.js') }, { refused: [], strangerAllowed: false },
+    `Android would refuse ${JSON.stringify(refused)} (it allows ${JSON.stringify(bases)} with ${pattern})`);
+  assert.match(kt, /"fonts:download"|downloadFont/, 'MainActivity has no font downloader');
+  const bridge = fs.readFileSync(require.resolve('../android/app/src/main/java/com/gazboard/app/NativeBridge.kt'), 'utf8');
+  assert.match(bridge, /"fonts:download" -> activity\.downloadFont/, 'the bridge does not route fonts:download to the downloader');
+});
+
+test('On Android, "Add a font file" opens the phone\'s own picker, since a WebView ignores a file input', () => {
+  const src = require('node:fs').readFileSync(require.resolve('../src/js/ui/panels.js'), 'utf8');
+  const row = src.slice(src.indexOf('function fontPackRow'), src.indexOf('function settings()'));
+  assert.match(row, /platform === 'android' \? pickNative\(\) : picker\.click\(\)/,
+    `the Add-a-font-file button does not branch for Android:\n${row.slice(row.indexOf("Add a font file"), row.indexOf("Add a font file") + 200)}`);
+  assert.match(row, /window\.board\.openDialog\(/, 'the Android branch does not ask the native picker');
+});

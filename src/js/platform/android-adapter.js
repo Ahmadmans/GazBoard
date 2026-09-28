@@ -25,6 +25,7 @@ export function createAndroidAdapter(native = window.GazBoardNative) {
     if (!listeners.has(name)) listeners.set(name, new Set());
     listeners.get(name).add(cb);
     if (name === 'open') for (const data of openQueue.splice(0)) emit(name, data);
+    return () => listeners.get(name).delete(cb);
   };
   const file = async (token, asJson = false) => {
     if (!/^[a-f0-9]{32}$/.test(token)) throw new Error('Invalid native file reference');
@@ -109,6 +110,21 @@ export function createAndroidAdapter(native = window.GazBoardNative) {
     openBoardsFolder: () => call('shell:openBoards'),
     openReleases: (url) => call('shell:openExternal', url),
     checkForUpdate: () => guarded('updates:check'),
+    // The page may reach no website of its own (MainActivity refuses every
+    // address that is not the app's), so the Chinese font is fetched by
+    // Android and handed over. It answers like fetch() does - a reply with a
+    // status, or a TypeError when the phone could not reach the server - so
+    // fontpack.js treats it exactly as it treats the real thing.
+    fetchFont: async (url, { onProgress } = {}) => {
+      const off = onProgress ? on('fontProgress', (p) => onProgress(p.got, p.total)) : null;
+      try {
+        const r = await call('fonts:download', url);
+        if (r.offline) throw new TypeError('offline');
+        if (!r.ok) return { ok: false, status: r.status, arrayBuffer: async () => new ArrayBuffer(0) };
+        const buf = await file(r.token);
+        return { ok: true, status: 200, arrayBuffer: async () => buf };
+      } finally { off?.(); }
+    },
     // Android hands the clipboard only to the app in front, which is exactly
     // when this is asked - a menu the user just opened. Pictures arrive as a
     // handle rather than pixels, so the text is what can be pasted; the

@@ -37,6 +37,17 @@ class MainActivity : ComponentActivity() {
     /** Beyond this a pasted picture is left on the clipboard rather than carried. */
     const val CLIPBOARD_IMAGE_CAP = 12 * 1024 * 1024
     const val ENTRY = "$ORIGIN/assets/board/index.html"
+    /**
+     * The only two places the Chinese font may come from, and the only shape
+     * its name may have. The page itself can reach no website at all (see
+     * shouldInterceptRequest), so the one download it is allowed goes through
+     * here, and nothing else does.
+     */
+    val FONT_SOURCES = listOf(
+      "https://cdn.jsdelivr.net/gh/fahim9778/GazBoard@main/fonts/",
+      "https://raw.githubusercontent.com/fahim9778/GazBoard/main/fonts/")
+    val FONT_FILE = Regex("gazboard-noto-sans-(sc|tc)-[0-9]{3}-v[0-9]{1,3}\\.woff2")
+    const val FONT_CAP = 8 * 1024 * 1024
   }
   private val app get() = application as GazBoardApplication
   lateinit var web: WebView; private set
@@ -432,6 +443,42 @@ class MainActivity : ComponentActivity() {
       return json("ok" to true, "version" to version, "name" to name,
         "url" to "https://github.com/fahim9778/GazBoard/releases/tag/" + bestTag,
         "prerelease" to false)
+    } finally { connection.disconnect() }
+  }
+  /**
+   * Fetch one Chinese font file for the page. The page checks its fingerprint
+   * afterwards, so all this has to do is refuse any other address and say
+   * plainly whether the server answered or the phone could not reach it.
+   */
+  fun downloadFont(address: String, progress: (Long, Long) -> Unit): JsonObject {
+    val base = FONT_SOURCES.firstOrNull { address.startsWith(it) } ?: error("Unknown font source")
+    require(FONT_FILE.matches(address.removePrefix(base))) { "Unknown font" }
+    val connection = URL(address).openConnection() as HttpURLConnection
+    try {
+      connection.connectTimeout = 10000; connection.readTimeout = 20000
+      connection.useCaches = false
+      connection.setRequestProperty("User-Agent", "GazBoard-Android/${BuildConfig.VERSION_NAME}")
+      val code = connection.responseCode
+      if (code != 200) return json("ok" to false, "status" to code)
+      val total = connection.contentLengthLong
+      val out = java.io.ByteArrayOutputStream()
+      connection.inputStream.use { input ->
+        val buf = ByteArray(64 * 1024)
+        var got = 0L
+        var told = 0L
+        while (true) {
+          val n = input.read(buf)
+          if (n < 0) break
+          got += n
+          require(got <= FONT_CAP) { "Unknown font" }
+          out.write(buf, 0, n)
+          if (got - told >= 256 * 1024) { told = got; progress(got, total) }
+        }
+        progress(got, total)
+      }
+      return json("ok" to true, "token" to app.files.put(out.toByteArray()))
+    } catch (e: java.io.IOException) {
+      return json("ok" to false, "offline" to true)
     } finally { connection.disconnect() }
   }
   fun startSharing(): JsonObject {
