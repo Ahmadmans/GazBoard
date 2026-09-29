@@ -3555,17 +3555,34 @@ async function run(win, app) {
     // top, and take only the new strokes away again at the end.
     const had = new Set(a.store.objects.map((o) => o.id));
     const camWas = { x: sf.cam.x, y: sf.cam.y, z: sf.cam.z };
-    sf.cam.x = 0; sf.cam.y = 0; sf.cam.z = 1;
+    /*
+     * Out in empty board, in the middle of the window.
+     *
+     * This used to put the ruler at the board's origin with the camera at 0,0 -
+     * which puts the origin in the window's top-left CORNER. The strokes then
+     * began 300px off the left of the canvas, on the very top edge, right where
+     * edge auto-pan and every earlier test's leftovers live, and on the macOS
+     * runner the snap-off stroke now and then came back as a single dot. Far
+     * from everything and mid-window, only the ruler is in play.
+     */
+    const OX = a.pages && a.pages.length ? 0 : 60000, OY = OX;
+    sf.cam.z = 1; sf.cam.x = sf.width / 2 - OX; sf.cam.y = sf.height / 2 - 60 - OY;
     a.ruler.visible = true; a.ruler.snap = true;
-    a.ruler.x = 0; a.ruler.y = 0; a.ruler.angle = 0; a.ruler.length = 1200;
+    a.ruler.x = OX; a.ruler.y = OY; a.ruler.angle = 0; a.ruler.length = 1200;
     a.setTool('pen');
+    // Nothing left selected by an earlier test may sit under the pen: a handle
+    // there turns the press into a resize and no stroke is drawn at all.
+    a.setSelection([]);
     it.action = null; it.actionId = null; it.pointers.clear();
     const rect = sf.canvas.getBoundingClientRect();
+    // Only strokes THIS test drew count - the board is full of other tests' ink.
+    const fresh = (before) => a.store.objects.filter((o) => o.type === 'stroke' && !before.has(o.id));
     // The ruler lies along y = 0 in board coordinates; find the screen row for it.
-    const onLine = (x) => sf.cam.toScreen(x, 0);
+    const onLine = (x) => sf.cam.toScreen(OX + x, OY);
     const mk = (p, buttons) => ({ pointerId: 1, pointerType: 'pen', button: 0, buttons,
       clientX: rect.left + p.x, clientY: rect.top + p.y, shiftKey: false, altKey: false, pressure: 0.5 });
 
+    const before1 = new Set(a.store.objects.map((o) => o.id));
     const start = onLine(-300);
     it.onDown(mk(start, 1));
     // now wander: 4, then 30, then 120 pixels off the edge and back
@@ -3575,36 +3592,41 @@ async function run(win, app) {
     const endp = onLine(260);
     it.onUp(mk(endp, 0));
 
-    const ink = a.store.objects.filter((o) => o.type === 'stroke').pop();
-    const worst = ink ? Math.max(...ink.points.map((q) => Math.abs(q.y))) : -1;
+    const inks = fresh(before1);
+    const ink = inks[inks.length - 1];
+    const worst = ink ? Math.max(...ink.points.map((q) => Math.abs(q.y - OY))) : -1;
     const spread = ink ? Math.max(...ink.points.map((q) => q.x)) - Math.min(...ink.points.map((q) => q.x)) : 0;
 
     // Same wander with snapping switched off must NOT be straightened - the
     // setting has to still mean something.
     a.ruler.snap = false;
     it.action = null; it.pointers.clear();
+    const before2 = new Set(a.store.objects.map((o) => o.id));
     const s2 = onLine(-300);
     it.onDown(mk(s2, 1));
+    const pressed = it.action ? it.action.type : 'nothing';
     const w = onLine(0);
     it.onMove(mk({ x: w.x, y: w.y + 120 }, 1));
     it.onUp(mk({ x: w.x, y: w.y + 120 }, 0));
-    const free = a.store.objects.filter((o) => o.type === 'stroke').pop();
-    const freeWorst = free ? Math.max(...free.points.map((q) => Math.abs(q.y))) : -1;
+    const frees = fresh(before2);
+    const freeWorst = frees.length ? Math.max(...frees.flatMap((f) => f.points.map((q) => Math.abs(q.y - OY)))) : -1;
+    const freeSeen = 'the press began a "' + pressed + '"; ' + frees.length + ' new stroke(s): ' +
+      (frees.map((f) => f.points.map((q) => (q.x - OX).toFixed(0) + ',' + (q.y - OY).toFixed(0)).join(' ')).join(' | ') || 'none');
 
-    a.ruler.snap = true; a.ruler.visible = false;
+    a.ruler.snap = true; a.ruler.visible = false; a.ruler.x = 0; a.ruler.y = 0;
     const mine = a.store.objects.filter((o) => !had.has(o.id)).map((o) => o.id);
     if (mine.length) a.store.remove(mine);
     sf.cam.x = camWas.x; sf.cam.y = camWas.y; sf.cam.z = camWas.z;
     it.action = null; it.pointers.clear();
-    return { worst, spread, points: ink ? ink.points.length : 0, freeWorst,
+    return { worst, spread, points: ink ? ink.points.length : 0, freeWorst, freeSeen, inkCount: inks.length,
              leftBehind: a.store.objects.filter((o) => !had.has(o.id)).length };
   `);
   check('a stroke that starts on the ruler stays on it however much the hand wanders',
-    ruled.worst >= 0 && ruled.worst < 0.5, `furthest point was ${ruled.worst?.toFixed?.(2)} off the line`);
+    ruled.worst >= 0 && ruled.worst < 0.5, `furthest point was ${ruled.worst?.toFixed?.(2)} off the line, in ${ruled.inkCount} new stroke(s)`);
   check('and it is a real line, not a dot pinned to one spot',
     ruled.points > 3 && ruled.spread > 400, `${ruled.points} points across ${Math.round(ruled.spread)}`);
   check('with snapping switched off the same wander is left exactly as drawn',
-    ruled.freeWorst > 50, `wandered ${Math.round(ruled.freeWorst)}`);
+    ruled.freeWorst > 50, `wandered ${Math.round(ruled.freeWorst)} — ${ruled.freeSeen}`);
   /*
    * A ruler has two long sides and people use both - rotating it is how you
    * choose which side the line comes out of. Only the near one used to draw,
