@@ -109,7 +109,12 @@ export function initToolbar(app) {
     onClick: toggleTool('text') });
   iconTool({ tool: 'note', icon: 'note', dot: true, key: 'N', title: t('Sticky note (N) \u2014 click again for colours'),
     onClick: toggleTool('note') });
-  iconTool({ tool: 'shape', icon: 'shapes', dot: true, key: 'S', title: t('Shapes (S)'), onClick: toggleTool('shape') });
+  // One press opens the shape menu, exactly like the emoji button. Under the
+  // click-again rule the first press only re-armed whatever shape was used
+  // last - after Escape, or after writing with the pen, that press looked like
+  // nothing happened, and the next drag drew a shape nobody had chosen.
+  iconTool({ tool: 'shape', icon: 'shapes', dot: true, key: 'S', title: t('Shapes (S)'),
+    onClick: (e, b) => { app.setTool('shape'); app.syncUI(); openToolPopover(app, b, 'shape'); } });
   /*
    * The emoji button always opens the picker.
    *

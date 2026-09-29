@@ -12266,6 +12266,49 @@ module.exports.run = async (win, app) => {
       `anything rubs out); the ink under it was erased: ${r.touched}`);
   }
 
+  /* ---- a shape's outline follows the theme like the rest of the ink ---- */
+  {
+    const r = await js(`const a = window.app, sf = a.surface; const was = a.settings.theme;
+      a.newBoard(true); a.textEditor.cancel(); a.settings.theme = 'dark'; a.applyTheme();
+      sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2;
+      a.store.add({ id: 'sd', type: 'shape', kind: 'rect', x: -200, y: -60, w: 120, h: 120, rotation: 0, stroke: a.settings.shapeStroke, fill: 'none', lineWidth: 8 }, 'x');
+      a.store.add({ id: 'sr', type: 'shape', kind: 'rect', x: 40, y: -60, w: 120, h: 120, rotation: 0, stroke: '#e81123', fill: 'none', lineWidth: 8 }, 'x');
+      a.store.add({ id: 'sa', type: 'shape', kind: 'arrow', x: -200, y: 120, w: 300, h: 0, rotation: 0, stroke: a.settings.shapeStroke, fill: 'none', lineWidth: 8 }, 'x');
+      a.setSelection([]); sf.repaintAll(); sf.draw();
+      const ctx = sf.canvas.getContext('2d'), dpr = sf.canvas.width / sf.width;
+      const px = (wx, wy) => { const p = sf.cam.toScreen(wx, wy); const d = ctx.getImageData(Math.round(p.x * dpr), Math.round(p.y * dpr), 1, 1).data;
+        return '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join(''); };
+      const out = { board: px(-140, 0), outline: px(-200, 0), red: px(40, 0), arrow: px(-100, 120), stored: a.store.get('sd').stroke };
+      a.settings.theme = was === undefined ? 'system' : was; a.applyTheme(); a.store.clear(); a.newBoard(true);
+      return out;`);
+    const light = (hex) => parseInt(hex.slice(1, 3), 16) > 180 && parseInt(hex.slice(3, 5), 16) > 180 && parseInt(hex.slice(5, 7), 16) > 180;
+    check('on a dark board a shape drawn in the default colour is light, and a chosen colour is kept',
+      light(r.outline) && light(r.arrow) && !light(r.board) && r.red === '#e81123' && r.stored === '#201f1e',
+      `default outline paints ${r.outline} and a default arrow ${r.arrow} on a ${r.board} board (black here is the bug: the picker says the ` +
+      `colour follows the theme and the shape did not); a red shape paints ${r.red}; still stored as ${r.stored}`);
+  }
+
+  /* ---- the shape button opens its menu on the first press ---- */
+  {
+    const wc = win.webContents;
+    const pos = await js(`const a = window.app; a.newBoard(true); a.textEditor.cancel(); a.hideMenus();
+      a.settings.shapeKind = 'ellipse'; a.setTool('shape'); a.setTool('pen');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const b = document.querySelector('#toolbar [data-tool="shape"]'); const r = b.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), tool: a.tool };`);
+    const press = async () => { wc.sendInputEvent({ type: 'mouseDown', x: pos.x, y: pos.y, button: 'left', clickCount: 1 }); await sleep(30);
+      wc.sendInputEvent({ type: 'mouseUp', x: pos.x, y: pos.y, button: 'left', clickCount: 1 }); await sleep(150); };
+    await press();
+    const first = await js(`return { open: !!document.querySelector('.pop .shape-grid'), tool: window.app.tool };`);
+    await press();
+    const second = await js(`return { open: !!document.querySelector('.pop .shape-grid'), tool: window.app.tool };`);
+    await js(`const a = window.app; a.hideMenus(); a.setTool('select');`);
+    check('one press on the shape button opens the shape menu, even straight after writing and Escape',
+      first.open && first.tool === 'shape' && !second.open,
+      `before: tool "${pos.tool}"; first press: menu open ${first.open}, tool "${first.tool}" (wanted open — before, it only re-armed the last shape ` +
+      `and showed nothing); second press: menu still open ${second.open} (wanted it put away)`);
+  }
+
   /* ---- grabbing a handle while still typing resizes, it never draws ---- */
   {
     const wc = win.webContents;

@@ -444,7 +444,12 @@ export function drawShape(ctx, o, hideText = false) {
     ctx.fill(o.kind === 'cloud' ? 'nonzero' : 'nonzero');
   }
   if (o.stroke && o.stroke !== 'none') {
-    ctx.strokeStyle = o.stroke;
+    // The outline is ink like any other: the default one follows the theme
+    // (light on a dark board, exactly as the colour picker promises), a colour
+    // somebody chose is left alone. It used to be painted as stored, so every
+    // default shape came out black on a dark board.
+    const outline = inkPaint(o.stroke);
+    ctx.strokeStyle = outline;
     ctx.lineWidth = o.lineWidth || 3;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -454,8 +459,8 @@ export function drawShape(ctx, o, hideText = false) {
     ctx.setLineDash([]);
     if (o.kind === 'arrow' || o.kind === 'doubleArrow') {
       const size = (o.lineWidth || 3) * 3.4;
-      arrowHead(ctx, { x, y }, { x: x + w, y: y + h }, size, o.stroke);
-      if (o.kind === 'doubleArrow') arrowHead(ctx, { x: x + w, y: y + h }, { x, y }, size, o.stroke);
+      arrowHead(ctx, { x, y }, { x: x + w, y: y + h }, size, outline);
+      if (o.kind === 'doubleArrow') arrowHead(ctx, { x: x + w, y: y + h }, { x, y }, size, outline);
     }
   }
   if (o.text && !hideText) {
