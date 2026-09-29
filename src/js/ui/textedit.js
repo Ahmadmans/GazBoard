@@ -25,9 +25,24 @@ export class TextEditor {
     // editing started is kept so the growth can be rewound and re-applied as
     // part of the same undo entry as the text itself.
     this.startH = obj.h;
+    this.startW = obj.w;
+    // How wide an automatic text box may grow before its words wrap. Fixed for
+    // the whole edit, so deleting text cannot lower it and make retyping wrap
+    // early. Boxes made before this was stored get one from their font size.
+    this.wrapW = obj.type === 'text'
+      ? (obj.wrapW || Math.max(obj.w || 0, (obj.fontSize || 24) * 11.25)) : null;
 
     const ta = document.createElement('textarea');
     ta.spellcheck = true;
+    /*
+     * Grammarly and its kind put a floating button inside any box you type
+     * into - over the very words being written, on a board where the box is
+     * sized to the words. These attributes are how such tools are told a field
+     * is not theirs to decorate; the spell check underline still works.
+     */
+    ta.setAttribute('data-gramm', 'false');
+    ta.setAttribute('data-gramm_editor', 'false');
+    ta.setAttribute('data-enable-grammarly', 'false');
     ta.value = cell ? (obj.cells?.[cell] || '') : (obj.text || '');
     this.el = ta;
     this.layer.appendChild(ta);
@@ -110,7 +125,7 @@ export class TextEditor {
        */
       const base = this.startH != null ? this.startH : o.h;
       const want = Math.max(base, this.noteHeight(o, this.el.value, base));
-      if (want !== o.h) { o.h = want; box = boundsOf(o); }
+      if (want !== o.h) { o.h = want; box = boundsOf(o); app.surface.touch?.(); }
     }
 
     /*
@@ -130,8 +145,22 @@ export class TextEditor {
      * number of lines depends on the words alone and never on the height.
      */
     if (o.type === 'text' && !this.cell && o.autoSize !== false) {
-      const want = this.fitBox(o, this.el.value).h;
-      if (want !== o.h) { o.h = want; box = boundsOf(o); }
+      /*
+       * And exactly as WIDE as its words, too: it grows to the right as you
+       * type and comes back in as you delete, up to its wrapping width, where
+       * the words start a new line instead. It used to open at that full width
+       * and stay there until you clicked away, so a two-letter word sat in a
+       * frame with a long empty stretch after it, and a box you came back to
+       * later could not grow at all - it wrapped at whatever width it had been
+       * shrunk to. A box sized by hand (autoSize false) keeps its width.
+       */
+      const want = this.fitBox(o, this.el.value);
+      if (want.h !== o.h || want.w !== o.w) { o.h = want.h; o.w = want.w; box = boundsOf(o); app.surface.touch?.(); }
+    } else if (o.type === 'text' && !this.cell) {
+      // Sized by hand: the width is theirs, but the height still follows the
+      // words, or the lines typed past the bottom are hidden.
+      const want = this.fitBox(o, this.el.value, o.w).h;
+      if (want !== o.h) { o.h = want; box = boundsOf(o); app.surface.touch?.(); }
     }
 
     const pad = o.type === 'note' ? Math.max(10, o.w * 0.08) : o.type === 'shape' ? 10 : 0;
@@ -224,7 +253,13 @@ export class TextEditor {
         // it drifted to during it. fitBox reads the width and the font, never
         // the height, so the answer is the same either way.
         if (this.startH != null) target.h = this.startH;
-        Object.assign(patch, this.fitBox(target, value));
+        if (this.startW != null) target.w = this.startW;
+        Object.assign(patch, this.fitBox(target, value, this.wrapW));
+        patch.wrapW = this.wrapW;
+      } else if (target.type === 'text') {
+        if (this.startH != null) target.h = this.startH;
+        const h = this.fitBox(target, value, target.w).h;
+        if (h !== target.h) patch.h = h;
       }
       if (target.type === 'note') {
         // Rewind the live resizing so update() records the height the note had
@@ -242,8 +277,9 @@ export class TextEditor {
       store.remove([target.id], 'remove empty text');
     } else if (this.startH != null && (target.type === 'note' || target.type === 'text')) {
       target.h = this.startH;      // nothing changed, so neither should the box
+      if (target.type === 'text' && this.startW != null) target.w = this.startW;
     }
-    this.startH = null;
+    this.startH = null; this.startW = null; this.wrapW = null;
 
     this.app.afterTextEdit();
     this.app.surface.invalidate();
@@ -256,16 +292,17 @@ export class TextEditor {
    * A new box starts wide enough to type into; leaving it that size afterwards
    * gives a short label a selection frame several times its own width.
    */
-  fitBox(o, value) {
+  fitBox(o, value, wrapW = this.wrapW) {
     const size = o.fontSize || 24;
     const family = faceOf(o.font);
     this.measure.font = `${o.bold ? '600 ' : ''}${size}px ${family}`;
     const pad = size * 0.35;
-    const lines = wrapText(this.measure, value, Math.max(40, o.w));
+    const limit = Math.max(40, wrapW || o.w);
+    const lines = wrapText(this.measure, value, limit);
     let widest = 0;
     for (const line of lines) widest = Math.max(widest, this.measure.measureText(line).width);
     return {
-      w: clamp(widest + pad, size * 1.2, o.w),   // never wider than it started: long text wraps
+      w: clamp(widest + pad, size * 1.2, limit),   // never wider than its wrapping width: long text wraps
       h: Math.max(size * 1.3, lines.length * size * 1.28 + pad * 0.4)
     };
   }
@@ -322,8 +359,9 @@ export class TextEditor {
     // for a text box exactly as for a note.
     if (target && (target.type === 'note' || target.type === 'text') && this.startH != null) {
       target.h = this.startH;
+      if (target.type === 'text' && this.startW != null) target.w = this.startW;
     }
-    this.startH = null;
+    this.startH = null; this.startW = null; this.wrapW = null;
     if (target && target.type === 'text' && !target.text) this.app.store.remove([target.id], 'remove empty text');
     this.app.afterTextEdit();
     this.app.surface.invalidate();

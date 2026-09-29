@@ -20,11 +20,42 @@ const crypto = require('node:crypto');
  * PNG: same certainty, none of the compression work, and it only happens when
  * something is copied or pasted rather than on the way past.
  */
+/*
+ * The clipboard the test suite uses on somebody's own computer.
+ *
+ * The paste checks have to put real things on a clipboard - a line of text, a
+ * link, a screenshot - and read them back. Putting them on the MACHINE's
+ * clipboard was tidy on the face of it, because the suite put back whatever
+ * had been there afterwards. But Windows keeps a history of everything that
+ * was ever copied (Windows+V), and so do most clipboard managers: every run
+ * left "typed into another window" and a made-up example.com link sitting in
+ * that history, looking as if something had copied them behind the person's
+ * back. Putting the clipboard back cannot take a line out of a history.
+ *
+ * So on a person's machine the suite gets a clipboard of its own, here in
+ * memory, and the machine's is never touched. The build machines (CI) have no
+ * history and nobody's work on them, so they still use the real one and the
+ * checks keep testing the real thing. GAZBOARD_REAL_CLIPBOARD=1 does the same
+ * locally for anyone who wants it. A normal launch is not affected at all:
+ * without --smoke there is no stand-in.
+ */
+const SMOKE = process.argv.includes('--smoke');
+const standIn = SMOKE && !process.env.CI && process.env.GAZBOARD_REAL_CLIPBOARD !== '1'
+  ? { text: '', image: null } : null;
+const cb = standIn ? {
+  availableFormats: () => [...(standIn.text ? ['text/plain'] : []), ...(standIn.image ? ['image/png'] : [])],
+  readText: () => standIn.text,
+  readImage: () => standIn.image || nativeImage.createEmpty(),
+  writeText: (t) => { standIn.text = String(t); standIn.image = null; },
+  writeImage: (img) => { standIn.image = img; standIn.text = ''; },
+  clear: () => { standIn.text = ''; standIn.image = null; }
+} : clipboard;
+
 function clipboardSignature() {
   try {
-    const formats = clipboard.availableFormats('clipboard').slice().sort().join('|');
-    const text = clipboard.readText('clipboard');
-    const image = clipboard.readImage('clipboard');
+    const formats = cb.availableFormats('clipboard').slice().sort().join('|');
+    const text = cb.readText('clipboard');
+    const image = cb.readImage('clipboard');
     let picture = '';
     if (image && !image.isEmpty()) {
       const { width, height } = image.getSize();
@@ -45,9 +76,9 @@ function clipboardSignature() {
  */
 function clipboardRead() {
   try {
-    const image = clipboard.readImage('clipboard');
+    const image = cb.readImage('clipboard');
     return {
-      text: clipboard.readText('clipboard') || '',
+      text: cb.readText('clipboard') || '',
       image: image && !image.isEmpty() ? image.toDataURL() : null,
       signature: clipboardSignature()
     };
@@ -85,13 +116,13 @@ function clipboardWriteForTests(payload) {
      * text there to be pasted into something real later - is a test that
      * misbehaves. An empty clipboard is restored as empty, not as ''.
      */
-    if (payload && payload.clear) { clipboard.clear(); return true; }
+    if (payload && payload.clear) { cb.clear(); return true; }
     if (payload && payload.image) {
       const img = nativeImage.createFromDataURL(payload.image);
       if (!img || img.isEmpty()) return false;
-      clipboard.writeImage(img);
+      cb.writeImage(img);
     } else {
-      clipboard.writeText(String((payload && payload.text) || ''));
+      cb.writeText(String((payload && payload.text) || ''));
     }
     return true;
   } catch { return false; }
@@ -103,7 +134,7 @@ contextBridge.exposeInMainWorld('board', {
   clipboardRead,
   // The suite is written against the English wording, so a smoke run is in
   // English whatever language the machine it runs on is set to.
-  ...(process.argv.includes('--smoke') ? { clipboardWriteForTests, smoke: true } : {}),
+  ...(SMOKE ? { clipboardWriteForTests, smoke: true, clipboardIsStandIn: !!standIn } : {}),
 
   readFile: (p) => ipcRenderer.invoke('fs:readFile', p),
   // On the desktop the path names the file already; the web build has to work

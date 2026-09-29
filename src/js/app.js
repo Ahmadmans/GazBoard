@@ -1263,9 +1263,23 @@ class App {
     this.saveSettings();
   }
 
+  /**
+   * How wide a new text box may grow before it wraps, starting at board x.
+   *
+   * The usual line length, but never past the right-hand edge of what is on
+   * screen: on a phone a box tapped in near the middle used to run straight
+   * off the side, and the words typed into it went with it.
+   */
+  textWrapWidthAt(x) {
+    const sf = this.surface;
+    const right = sf.cam.toWorld(sf.width - 16, 0).x;
+    return Math.max(this.worldSize(120), Math.min(this.worldSize(360), right - x));
+  }
+
   addTextAt(wp) {
     const fontSize = this.worldSize(this.settings.textSize);
-    const o = { id: uid('t'), type: 'text', x: wp.x, y: wp.y - fontSize, w: this.worldSize(360), h: fontSize * 1.6, text: '', rotation: 0, color: this.settings.textColor, fontSize, align: 'left', valign: 'top', font: this.settings.textFont, background: 'none' };
+    const wrapW = this.textWrapWidthAt(wp.x);
+    const o = { id: uid('t'), type: 'text', x: wp.x, y: wp.y - fontSize, w: wrapW, wrapW, h: fontSize * 1.6, text: '', rotation: 0, color: this.settings.textColor, fontSize, align: 'left', valign: 'top', font: this.settings.textFont, background: 'none' };
     this.store.add(o, 'text');
     this.armToolRestore();
     if (this.tool !== 'select') this.setTool('select');

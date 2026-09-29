@@ -8765,6 +8765,10 @@ module.exports.run = async (win, app) => {
     `${cursorChurn.writesOnARealChange} write(s)`);
 
   /* ---- snip a page, Ctrl+V, ink on it ---- */
+  // What the REAL clipboard holds before the paste checks, read from here in
+  // the main process, so the checks below can prove they never touched it.
+  const realClip = require('electron').clipboard;
+  const realBefore = (() => { try { return realClip.availableFormats().join('|') + '\u0000' + realClip.readText(); } catch { return 'unreadable'; } })();
   const pasted = await js(`
    /*
     * Declared outside the try, because the finally below has to reach both:
@@ -9407,6 +9411,17 @@ module.exports.run = async (win, app) => {
     `what is on the clipboard now: "${pasted.clipboardLeftBehind}" — this probe writes real values to the ` +
     `real clipboard, so leaving one there means whatever the person had copied is gone and a line of test ` +
     `text is waiting to be pasted into something that matters`);
+
+  {
+    const standIn = await js(`return !!window.board?.clipboardIsStandIn;`);
+    const realAfter = (() => { try { return realClip.availableFormats().join('|') + '\u0000' + realClip.readText(); } catch { return 'unreadable'; } })();
+    const onCi = !!process.env.CI || process.env.GAZBOARD_REAL_CLIPBOARD === '1';
+    check('on your own computer the paste checks never touch your real clipboard or its history',
+      onCi ? !standIn : (standIn && realAfter === realBefore),
+      onCi ? `a build machine (CI): the real clipboard is exercised on purpose — stand-in in use: ${standIn} (wanted false)`
+        : `stand-in clipboard in use: ${standIn} (wanted true — without it every run leaves "typed into another window" and an ` +
+          `example.com link in Windows+V history); real clipboard unchanged: ${realAfter === realBefore}`);
+  }
 
   /* ---- two files, one id: neither may eat the other ---- */
   const twoFiles = await js(`
@@ -12042,6 +12057,265 @@ module.exports.run = async (win, app) => {
       /codesign --verify --deep --strict/.test(wf),
       /codesign --verify --deep --strict/.test(wf) ? 'release.yml verifies every Mac app before it is attached'
         : 'release.yml has no "codesign --verify --deep --strict" step — without it a broken signature only shows up on somebody\'s Mac');
+  }
+
+  /* ---- a text box hugs its words as you type, growing and shrinking ---- */
+  {
+    const wc = win.webContents;
+    const type = async (str) => { for (const ch of str) { wc.sendInputEvent({ type: 'char', keyCode: ch }); await sleep(12); } await sleep(120); };
+    const back = async (n) => { for (let i = 0; i < n; i++) { wc.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' }); wc.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' }); await sleep(12); } await sleep(120); };
+    const look = () => js(`const a = window.app, ta = a.textEditor.el, o = a.store.objects.find((q) => q.type === 'text');
+      return { w: o && Math.round(o.w), h: o && Math.round(o.h), wrapW: o && Math.round(o.wrapW || 0),
+        taW: ta ? Math.round(ta.getBoundingClientRect().width) : null,
+        taFits: ta ? ta.scrollHeight <= ta.clientHeight + 2 : null,
+        grammarlyOff: ta ? ta.getAttribute('data-gramm') === 'false' : null };`);
+    await js(`const a = window.app; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      const sf = a.surface; sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.invalidate();
+      a.setTool('pen'); a.setTool('text');`);
+    const at = await js(`const r = window.app.surface.canvas.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2 - 300), y: Math.round(r.top + r.height / 2 - 80) };`);
+    wc.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 }); await sleep(30);
+    wc.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 }); await sleep(250);
+    await type('sa');
+    const two = await look();
+    await type(' and a few more words');
+    const more = await look();
+    await back(19);
+    const less = await look();
+    await type(' then a long sentence that has to run past the wrapping width and onto a second line');
+    const long = await look();
+    await js(`window.app.textEditor.commit();`);
+    await sleep(100);
+    // Come back to a short box later and keep typing: it must still be able to grow.
+    await js(`const a = window.app; const o = a.store.objects.find((q) => q.type === 'text');
+      a.store.update(o.id, { text: 'hi' }, 'x'); a.setTool('select'); a.setSelection([o.id]); a.beginTextEdit(a.store.get(o.id));
+      a.textEditor.el.value = 'hi'; a.textEditor.place();`);
+    const reopened = await look();
+    await sleep(250);
+    await type(' there, more words now');
+    const regrown = await look();
+    await js(`const a = window.app; a.textEditor.commit(); a.setTool('select'); a.store.clear();`);
+
+    check('a text box starts as wide as its first word, not with a long empty stretch after it',
+      two.w < 90 && two.taFits && two.grammarlyOff,
+      `"sa" gives a box ${two.w} wide (wrapping width ${two.wrapW}; the old box sat at the full ${two.wrapW} with the rest empty); ` +
+      `editor shows it all: ${two.taFits}; Grammarly's floating button turned off: ${two.grammarlyOff}`);
+    check('it grows to the right as you type, and comes back in as you delete',
+      more.w > two.w + 100 && less.w < more.w - 100 && less.w >= two.w - 2 && more.taFits && less.taFits,
+      `widths: "sa" ${two.w} → more words ${more.w} → after deleting ${less.w}; editor never scrolls: ${more.taFits}/${less.taFits}`);
+    check('past its wrapping width it starts a new line instead of running away',
+      long.w <= long.wrapW + 1 && long.h > two.h * 1.5 && long.taFits,
+      `long text: ${long.w} wide (limit ${long.wrapW}), ${long.h} tall (one line was ${two.h}); editor shows every line: ${long.taFits}`);
+    check('a box you come back to can still grow, instead of wrapping at its old size',
+      regrown.w > reopened.w + 100 && regrown.h <= reopened.h + 2,
+      `reopened at ${reopened.w} wide, grew to ${regrown.w} on one line (height ${reopened.h} → ${regrown.h}) — ` +
+      `before, it wrapped every word at the width it had been shrunk to`);
+  }
+
+  /* ---- resizing a text box never hides any of its words ---- */
+  {
+    const wc = win.webContents;
+    const dragHandle = async (key, dx, dy) => {
+      const p = await js(`const a = window.app, sf = a.surface; const { handlePositions } = await import('app://board/js/core/render.js');
+        const r = sf.canvas.getBoundingClientRect(); const hp = handlePositions(sf.selectionScreenBox());
+        return { x: Math.round(hp['${key}'].x + r.left), y: Math.round(hp['${key}'].y + r.top) };`);
+      wc.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 }); await sleep(30);
+      for (let i = 1; i <= 10; i++) { wc.sendInputEvent({ type: 'mouseMove', x: p.x + Math.round(i * dx / 10), y: p.y + Math.round(i * dy / 10), button: 'left', modifiers: ['leftbuttondown'] }); await sleep(16); }
+      wc.sendInputEvent({ type: 'mouseUp', x: p.x + dx, y: p.y + dy, button: 'left', clickCount: 1 }); await sleep(150);
+    };
+    // Lines the renderer would draw, and lines the text needs at the box's width.
+    const state = () => js(`const a = window.app, o = a.store.get('rz'); const ed = a.textEditor;
+      const need = ed.fitBox(o, o.text, o.w).h;
+      return { w: Math.round(o.w), h: Math.round(o.h), need: Math.round(need), font: +o.fontSize.toFixed(2), text: o.text };`);
+    await js(`const a = window.app; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      const sf = a.surface; sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2 - 100; sf.invalidate();
+      a.store.add({ id: 'rz', type: 'text', x: -200, y: -40, w: 420, wrapW: 420, h: 45, text: 'the quick brown fox jumps over', rotation: 0,
+        color: '#201f1e', fontSize: 32, align: 'left', valign: 'top', font: 'hand', background: 'none' }, 'x');
+      const o = a.store.get('rz'); Object.assign(o, a.textEditor.fitBox(o, o.text, 420));
+      a.setTool('select'); a.setSelection(['rz']);`);
+    const start = await state();
+    await dragHandle('e', -220, 0);
+    const narrow = await state();
+    await dragHandle('se', 120, 0);
+    const corner = await state();
+    // Type more into the box that was sized by hand: it must get taller, not hide the new words.
+    await js(`const a = window.app; a.beginTextEdit(a.store.get('rz'));`);
+    await sleep(250);
+    for (const ch of ' and then some more words at the end') { wc.sendInputEvent({ type: 'char', keyCode: ch }); await sleep(10); }
+    await sleep(150);
+    const typing = await js(`const ta = window.app.textEditor.el; return { fits: ta.scrollHeight <= ta.clientHeight + 2 };`);
+    await js(`window.app.textEditor.commit();`);
+    const typed = await state();
+    await js(`const a = window.app; a.setSelection([]); a.store.clear();`);
+
+    check('narrowing a text box from its side wraps the words and makes it taller, lettering unchanged',
+      narrow.w < start.w - 150 && narrow.font === start.font && narrow.h >= narrow.need - 1 && narrow.h > start.h,
+      `width ${start.w} → ${narrow.w}, lettering ${start.font} → ${narrow.font} (a side handle used to enlarge the letters too), ` +
+      `height ${start.h} → ${narrow.h}, and the words need ${narrow.need} — anything shorter hides the last lines`);
+    check('a corner still scales the lettering, and the box stays tall enough for it',
+      corner.font > narrow.font && corner.h >= corner.need - 1,
+      `lettering ${narrow.font} → ${corner.font}; height ${corner.h} for words that need ${corner.need}`);
+    check('typing more into a box sized by hand makes it taller instead of hiding the new words',
+      typing.fits && typed.h >= typed.need - 1 && typed.w === corner.w && /at the end$/.test(typed.text),
+      `while typing the editor showed every line: ${typing.fits}; afterwards ${typed.w} wide (kept ${corner.w}) and ${typed.h} tall for words that need ${typed.need}`);
+  }
+
+  /* ---- what is being dragged or resized is drawn where it IS, every frame ---- */
+  {
+    const wc = win.webContents;
+    const redOutside = () => js(`const a = window.app, sf = a.surface; await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const o = a.store.get('lv'); const p = sf.cam.toScreen(o.x + o.w, o.y), q = sf.cam.toScreen(o.x, o.y + o.h);
+      const ctx = sf.canvas.getContext('2d'), dpr = sf.canvas.width / sf.width;
+      const px = ctx.getImageData(Math.round((p.x + 6) * dpr), Math.round(p.y * dpr), Math.round(250 * dpr), Math.round((q.y - p.y) * dpr)).data;
+      let red = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 180 && px[i + 1] < 90 && px[i + 2] < 90) red++;
+      const inside = ctx.getImageData(Math.round(sf.cam.toScreen(o.x, o.y).x * dpr), Math.round(p.y * dpr), Math.round((p.x - sf.cam.toScreen(o.x, o.y).x) * dpr), Math.round((q.y - p.y) * dpr)).data;
+      let redIn = 0; for (let i = 0; i < inside.length; i += 4) if (inside[i] > 180 && inside[i + 1] < 90 && inside[i + 2] < 90) redIn++;
+      return { red, redIn, warm: !!sf._ink, action: a.interaction.action ? a.interaction.action.type : null };`);
+    await js(`const a = window.app, sf = a.surface; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.invalidate();
+      a.store.add({ id: 'lv', type: 'text', x: -150, y: -150, w: 380, wrapW: 380, h: 60, rotation: 0, color: '#e81123', fontSize: 32,
+        text: 'one two\\nthree four five six seven\\neight', align: 'left', valign: 'top', font: 'ui', background: 'none' }, 'x');
+      const o = a.store.get('lv'); Object.assign(o, a.textEditor.fitBox(o, o.text, 380)); a.store.rev++;
+      a.setTool('select'); a.setSelection(['lv']); sf.invalidate();`);
+    await sleep(700);    // long enough for the idle rebuild to take its copy of the board
+    const p = await js(`const a = window.app, sf = a.surface; const { handlePositions } = await import('app://board/js/core/render.js');
+      const r = sf.canvas.getBoundingClientRect(); const hp = handlePositions(sf.selectionScreenBox());
+      return { x: Math.round(hp.e.x + r.left), y: Math.round(hp.e.y + r.top), warm: !!sf._ink };`);
+    wc.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 }); await sleep(30);
+    for (let i = 1; i <= 8; i++) { wc.sendInputEvent({ type: 'mouseMove', x: p.x - i * 20, y: p.y, button: 'left', modifiers: ['leftbuttondown'] }); await sleep(20); }
+    const mid = await redOutside();
+    wc.sendInputEvent({ type: 'mouseUp', x: p.x - 160, y: p.y, button: 'left', clickCount: 1 }); await sleep(200);
+    await js(`const a = window.app; a.setSelection([]); a.store.clear();`);
+    check('while a text box is being narrowed its words re-wrap live, instead of the old picture sitting under the new frame',
+      p.warm && mid.action === 'resize' && mid.red === 0 && mid.redIn > 0,
+      `a ready-made copy of the board existed before the drag: ${p.warm}; mid-drag (${mid.action}) the words drew ${mid.red} red pixels ` +
+      `outside the new frame (wanted 0 — anything more is the board from before the drag being reused) and ${mid.redIn} inside it`);
+  }
+
+  /* ---- a new text box never runs off the right-hand side of the screen ---- */
+  {
+    const r = await js(`const a = window.app, sf = a.surface; a.newBoard(true); a.textEditor.cancel();
+      sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2;
+      const right = sf.cam.toWorld(sf.width, 0).x;
+      const near = sf.cam.toWorld(sf.width - 200, sf.height / 2);
+      a.addTextAt(near);
+      const o = a.store.objects.find((q) => q.type === 'text');
+      const out = { wrapW: Math.round(o.wrapW), room: Math.round(right - near.x), ends: Math.round(o.x + o.wrapW), right: Math.round(right),
+        middle: Math.round(a.textWrapWidthAt(sf.cam.toWorld(sf.width / 2 - 400, 0).x)), usual: Math.round(a.worldSize(360)) };
+      a.textEditor.cancel(); a.setTool('select'); a.store.clear(); return out;`);
+    check('a text box started near the right edge wraps before the edge instead of running off the screen',
+      r.ends <= r.right && r.wrapW < r.usual && r.middle === r.usual,
+      `started ${r.room} from the edge: may grow to ${r.wrapW} (the usual ${r.usual}), so it ends at ${r.ends} with the screen ending at ${r.right}; ` +
+      `one started with plenty of room still gets the usual ${r.middle}`);
+  }
+
+  /* ---- double-clicking a side handle puts a hand-sized text box back to fitting its words ---- */
+  {
+    const wc = win.webContents;
+    await js(`const a = window.app, sf = a.surface; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.invalidate();
+      a.store.add({ id: 'db', type: 'text', x: -200, y: -60, w: 500, h: 45, autoSize: false, rotation: 0, color: '#201f1e', fontSize: 32,
+        text: 'short words', align: 'left', valign: 'top', font: 'ui', background: 'none' }, 'x');
+      a.setTool('select'); a.setSelection(['db']);`);
+    await sleep(150);
+    const p = await js(`const a = window.app, sf = a.surface; const { handlePositions } = await import('app://board/js/core/render.js');
+      const r = sf.canvas.getBoundingClientRect(); const hp = handlePositions(sf.selectionScreenBox());
+      return { x: Math.round(hp.e.x + r.left), y: Math.round(hp.e.y + r.top) };`);
+    for (const n of [1, 2]) {
+      wc.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: n }); await sleep(20);
+      wc.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: n }); await sleep(40);
+    }
+    await sleep(200);
+    const r = await js(`const a = window.app, o = a.store.get('db');
+      const after = { w: Math.round(o.w), x: Math.round(o.x), auto: o.autoSize, editing: a.textEditor.active };
+      a.store.undo(); const back = a.store.get('db');
+      const undone = { w: Math.round(back.w), auto: back.autoSize };
+      a.textEditor.cancel(); a.setSelection([]); a.store.clear(); return { after, undone };`);
+    check('double-clicking a side handle fits a hand-sized text box back to its words, and one undo puts it back',
+      r.after.w < 250 && r.after.x === -200 && r.after.auto === true && !r.after.editing && r.undone.w === 500 && r.undone.auto === false,
+      `500 wide for "short words" → ${r.after.w} (left edge ${r.after.x}, wanted -200 so the words do not move), fits its words again: ${r.after.auto}, ` +
+      `opened for typing by mistake: ${r.after.editing}; after undo ${r.undone.w} wide, hand-sized ${r.undone.auto === false}`);
+  }
+
+  /* ---- flipping the pen to erase straight after writing does not repaint the whole board ---- */
+  {
+    const r = await js(`const a = window.app, sf = a.surface, it = a.interaction; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2;
+      const objs = []; for (let i = 0; i < 1500; i++) { const x = (i % 75) * 18 - 680, y = Math.floor(i / 75) * 14 - 140; const pts = [];
+        for (let k = 0; k < 14; k++) pts.push({ x: x + k, y: y + Math.sin(k) * 4, p: 0.5 });
+        objs.push({ id: 'f' + i, type: 'stroke', points: pts, color: '#201f1e', width: 2, bbox: { x, y: y - 4, w: 14, h: 8 } }); }
+      a.store.addMany(objs, 'x'); a.setTool('pen'); a.setSelection([]); sf.invalidate();
+      const rect = sf.canvas.getBoundingClientRect();
+      const ev = (id, x, y, b, btn = 0) => ({ pointerId: id, pointerType: 'pen', button: btn, buttons: b, clientX: rect.left + x, clientY: rect.top + y, shiftKey: false, altKey: false, pressure: 0.5 });
+      const frame = () => new Promise((res) => requestAnimationFrame(() => res()));
+      await new Promise((res) => setTimeout(res, 500));
+      const o = sf.cam.toScreen(-300, 180);
+      it.onDown(ev(1, o.x, o.y, 1)); for (let i = 1; i < 10; i++) { it.onMove(ev(1, o.x + i * 3, o.y, 1)); await frame(); } it.onUp(ev(1, o.x + 30, o.y, 0));
+      await frame(); await new Promise((res) => setTimeout(res, 250));
+      const before = a.store.objects.length;
+      const calls = []; const orig = sf.drawScene.bind(sf);
+      sf.drawScene = (ctx, w, h, onl, clip) => { if (ctx === sf.ctx) calls.push(clip ? 'band' : 'whole board'); return orig(ctx, w, h, onl, clip); };
+      const e = sf.cam.toScreen(-676, -140);
+      it.onDown(ev(2, e.x, e.y, 32, 5)); sf.draw(); it.onMove(ev(2, e.x + 6, e.y, 32)); sf.draw(); it.onUp(ev(2, e.x + 6, e.y, 0, 5));
+      sf.drawScene = orig;
+      const touched = a.store.objects.length !== before || a.store.objects.some((q) => q.id === 'f0' && q.points.length < 14) || !a.store.get('f0');
+      a.setTool('select'); a.store.clear();
+      return { calls, touched };`);
+    check('turning the pen over to erase straight after writing repaints only the band under it',
+      r.touched && r.calls.length >= 1 && r.calls.every((c) => c === 'band'),
+      `paints on the eraser's first frames: ${r.calls.join(', ') || 'none'} (a "whole board" first is the hitch: every object redrawn before ` +
+      `anything rubs out); the ink under it was erased: ${r.touched}`);
+  }
+
+  /* ---- grabbing a handle while still typing resizes, it never draws ---- */
+  {
+    const wc = win.webContents;
+    const press = async (x, y) => { wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 }); await sleep(30); };
+    const drag = async (x, y, dx) => {
+      for (let i = 1; i <= 10; i++) { wc.sendInputEvent({ type: 'mouseMove', x: x + Math.round(i * dx / 10), y, button: 'left', modifiers: ['leftbuttondown'] }); await sleep(16); }
+      wc.sendInputEvent({ type: 'mouseUp', x: x + dx, y, button: 'left', clickCount: 1 }); await sleep(200);
+    };
+    const round = async (kind, startTool) => {
+      await js(`const a = window.app; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+        const sf = a.surface; sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; sf.invalidate();
+        a.settings.inkWithMouse = 'yes'; a.setTool('pen'); a.setTool('${startTool}');`);
+      const mid = await js(`const r = window.app.surface.canvas.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2 - 120), y: Math.round(r.top + r.height / 2 - 60) };`);
+      if (startTool === 'select') {
+        // editing an existing ${kind} opened from Select
+        await js(`const a = window.app; const o = ${kind === 'note'
+          ? `{ id: 'hn', type: 'note', x: -120, y: -60, w: 200, h: 200, color: '#ffd94a', text: '', rotation: 0, align: 'center', font: 'hand' }`
+          : `{ id: 'hn', type: 'text', x: -120, y: -60, w: 360, h: 50, text: '', rotation: 0, color: '#201f1e', fontSize: 32, align: 'left', valign: 'top', font: 'hand', background: 'none' }`};
+          a.store.add(o, 'x'); a.setSelection(['hn']); a.beginTextEdit(a.store.get('hn'));`);
+        await sleep(250);   // let the editor take focus before the first key
+      } else {
+        await press(mid.x, mid.y); wc.sendInputEvent({ type: 'mouseUp', x: mid.x, y: mid.y, button: 'left', clickCount: 1 }); await sleep(250);
+      }
+      for (const ch of 'hi there') { wc.sendInputEvent({ type: 'char', keyCode: ch }); await sleep(12); }
+      await sleep(250);
+      const before = await js(`const a = window.app, sf = a.surface; const { handlePositions } = await import('app://board/js/core/render.js');
+        const box = sf.selectionScreenBox?.(); const r = sf.canvas.getBoundingClientRect();
+        const o = a.store.objects.find((q) => q.type === '${kind}');
+        const hp = box && handlePositions(box);
+        return { editing: a.textEditor.active, text: a.textEditor.el?.value, w: o && Math.round(o.w),
+          e: hp && { x: Math.round(hp.e.x + r.left), y: Math.round(hp.e.y + r.top) } };`);
+      if (!before.e) return { kind, startTool, before, error: 'no handles were showing while typing' };
+      await press(before.e.x, before.e.y);
+      const pressed = await js(`const it = window.app.interaction; return it.action ? it.action.type : 'nothing';`);
+      await drag(before.e.x, before.e.y, 80);
+      const after = await js(`const a = window.app; const o = a.store.objects.find((q) => q.type === '${kind}');
+        const out = { strokes: a.store.objects.filter((q) => q.type === 'stroke').length, w: o && Math.round(o.w), text: o && o.text };
+        a.settings.inkWithMouse = 'auto'; a.setTool('select'); a.store.clear(); return out;`);
+      return { kind, startTool, before, pressed, after };
+    };
+    for (const [kind, startTool] of [['text', 'text'], ['note', 'note'], ['text', 'select']]) {
+      const r = await round(kind, startTool);
+      const grew = r.after && r.before && r.after.w > r.before.w;
+      check(`grabbing a ${kind === 'note' ? 'sticky note' : 'text box'}'s handle while typing${startTool === 'select' ? ' (opened from Select)' : ''} resizes it and draws nothing`,
+        !r.error && r.before.editing && r.pressed === 'resize' && r.after.strokes === 0 && grew && r.after.text === 'hi there',
+        r.error ? `${r.error}: ${JSON.stringify(r.before)}` :
+        `typing: ${r.before.editing} ("${r.before.text}"); the press began a "${r.pressed}" (wanted resize — "draw" is the old bug: ` +
+        `committing shrank the box, the handle moved away, and the pen took the press); strokes left: ${r.after.strokes}; ` +
+        `width ${r.before.w} → ${r.after.w}; text kept: "${r.after.text}"`);
+    }
   }
 
   /* ---- a closed side panel leaves nothing at the window edge ---- */

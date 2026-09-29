@@ -128,7 +128,25 @@ export class Surface {
   freezeKey() {
     const cam = this.cam;
     const ed = this.editing ? `${this.editing.id}:${this.editing.cell || ''}` : '';
-    return `${this.store.rev}|${cam.x}|${cam.y}|${cam.z}|${this.width}|${this.height}|${this.dpr}|${ed}`;
+    return `${this.store.rev}.${this._liveRev || 0}|${cam.x}|${cam.y}|${cam.z}|${this.width}|${this.height}|${this.dpr}|${ed}`;
+  }
+
+  /**
+   * Objects were changed in place, mid-gesture.
+   *
+   * A drag, a resize or a rotation moves objects on every pointer move but
+   * only files the change with the store when the gesture ends, so the
+   * document revision does not move while it is going on. The frozen copy is
+   * keyed on that revision - and the idle rebuild takes a fresh copy the
+   * moment the board settles - so a resize began by blitting the board as it
+   * was before the drag: the handles followed the pointer while the object
+   * itself sat still, and a text box being narrowed showed its words still
+   * laid out at the old width until the drag ended. This moves the key on
+   * every such change, so the copy is only ever used for the board it shows.
+   */
+  touch() {
+    this._liveRev = (this._liveRev || 0) + 1;
+    this.invalidate();
   }
 
   /**

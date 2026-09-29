@@ -283,7 +283,18 @@ export class Interaction {
     // Remember what this press could dismiss. Finishing a text edit clears
     // its selection, before pointerup gets a chance to recognise the tap.
     const selectionAtDown = this.surface.selection.size ? new Set(this.surface.selection) : null;
-    const handleSelection = !this.spaceDown && e.button !== 1 && this.handleAt(sp) ? selectionAtDown : null;
+    /*
+     * Which handle, if any, is under the press - decided NOW, before the text
+     * commit below. Committing fits a text box to its words, so a box being
+     * typed into usually shrinks the moment it is committed, and its handles
+     * move with it. Asking again afterwards found no handle where the finger
+     * was, and the press fell through to the pen: trying to widen a text box
+     * while typing drew a line instead. The handle that was pressed is the
+     * one that is dragged, wherever the commit left it.
+     */
+    const handleKey = !this.spaceDown && e.button !== 1 ? this.handleAt(sp) : null;
+    this._pressHandle = handleKey;
+    const handleSelection = handleKey ? selectionAtDown : null;
     // commit first: committing hands the board back to the pen, and the tool
     // must be resolved after that or the first stylus touch after typing runs
     // the old tool
@@ -348,7 +359,7 @@ export class Interaction {
     // pressed before that commit still belongs to the object being edited.
     if (handleSelection) this.app.setSelection([...handleSelection]);
     // a visible handle is always draggable, whatever tool is active
-    if (!this.spaceDown && e.button !== 1 && tool !== 'select' && this.startHandleGesture(sp, wp)) {
+    if (!this.spaceDown && e.button !== 1 && tool !== 'select' && this.startHandleGesture(sp, wp, handleKey)) {
       this.actionId = e.pointerId;
       this.surface.invalidate();
       return;
@@ -490,7 +501,15 @@ export class Interaction {
     // Whichever pointer began the gesture owns it until it lifts.
     this.actionId = this.action ? e.pointerId : null;
     this.armHoldToMove(e, sp, wp);
-    this.surface.invalidate();
+    /*
+     * An eraser touching down has already asked for exactly the band under it
+     * (see eraseSweep). Asking for the whole board on top of that turned its
+     * very first contact into a full repaint of every object - the one hitch
+     * in an otherwise band-sized scrub, and on a crowded board and an older
+     * laptop a visible pause before anything rubbed out, most often felt when
+     * the pen was flipped over straight after writing.
+     */
+    if (!(this.action && this.action.type === 'erase')) this.surface.invalidate();
   }
 
   /** Advance a right-button drag. Returns true when it consumed the event. */
@@ -758,6 +777,7 @@ export class Interaction {
           translateObject(o, b.x + dx - boundsOf(o).x, b.y + dy - boundsOf(o).y);
         }
         this.clampGroupToPaper(a.objs);
+        this.surface.touch?.();
         break;
       }
       case 'resize': {
@@ -777,10 +797,13 @@ export class Interaction {
         if (Math.abs(sx) < 0.02) sx = 0.02 * Math.sign(sx || 1);
         if (Math.abs(sy) < 0.02) sy = 0.02 * Math.sign(sy || 1);
         for (const o of a.objs) {
-          Object.assign(o, structuredClone(a.origin.get(o.id)));
+          const was = a.origin.get(o.id);
+          Object.assign(o, structuredClone(was));
           scaleObject(o, sx, sy, anchor.x, anchor.y);
+          if (o.type === 'text') this.fitResizedText(o, h, was);
         }
         this.clampGroupToPaper(a.objs);
+        this.surface.touch?.();
         break;
       }
       case 'rotate': {
@@ -792,6 +815,7 @@ export class Interaction {
           rotateObjectAround(o, ang, c.x, c.y);
         }
         this.clampGroupToPaper(a.objs);
+        this.surface.touch?.();
         a.angle = ang;
         break;
       }
@@ -924,8 +948,54 @@ export class Interaction {
    * freshly created or freshly imported object look live but do nothing until
    * you also switch to Select.
    */
-  startHandleGesture(sp, wp) {
+  /**
+   * Double-click a text box's side handle: back to fitting its words.
+   *
+   * A box sized by hand keeps the width it was given, as it would in Word or
+   * PowerPoint. This is the way back: it wraps at the width it has now, then
+   * hugs its words again, growing and shrinking as they are typed, exactly
+   * like a box that was never resized. One undo puts the hand-set size back.
+   */
+  fitTextToWords(sp) {
     const k = this.handleAt(sp);
+    if (k !== 'e' && k !== 'w') return false;
+    const sel = [...this.surface.selection];
+    const o = sel.length === 1 ? this.store.get(sel[0]) : null;
+    if (!o || o.type !== 'text' || o.locked) return false;
+    const fit = this.app.textEditor?.fitBox?.(o, o.text || '', o.w);
+    if (!fit) return false;
+    // The words stay exactly where they are; only the empty space goes.
+    const patch = { autoSize: true, wrapW: o.w, w: fit.w, h: fit.h };
+    this.action = null; this.actionId = null;
+    this.store.update(o.id, patch, 'fit text');
+    this.surface.invalidate();
+    return true;
+  }
+
+  /**
+   * A text box being resized keeps all of its words in view.
+   *
+   * Resizing used to stretch the box like a picture: dragging a side made the
+   * lettering bigger as well as the box wider, and the height stayed wherever
+   * the drag left it - so narrowing a box wrapped its words onto more lines
+   * than it had room for, and the last ones simply were not drawn. Now a side
+   * handle changes where the words wrap and nothing else, a corner still
+   * scales the lettering, and either way the box is exactly as tall as its
+   * words at the new width. Dragging the top edge keeps the bottom where it
+   * was, as any top-edge drag does.
+   */
+  fitResizedText(o, handle, was) {
+    if (handle === 'e' || handle === 'w') o.fontSize = was.fontSize;
+    const fit = this.app.textEditor?.fitBox?.(o, o.text || '', o.w);
+    if (!fit) return;
+    const bottom = o.y + o.h;
+    o.h = fit.h;
+    if (handle.includes('n')) o.y = bottom - o.h;
+    o.wrapW = o.w;
+  }
+
+  startHandleGesture(sp, wp, pressed = null) {
+    const k = pressed || this.handleAt(sp);
     if (!k) return false;
     const sel = this.surface.selection;
     const ids = withAttached(this.store, [...sel]);
@@ -1109,7 +1179,7 @@ export class Interaction {
   }
 
   startSelect(e, sp, wp) {
-    if (this.startHandleGesture(sp, wp)) return;
+    if (this.startHandleGesture(sp, wp, this._pressHandle)) return;
 
     const sel = this.surface.selection;
     const hit = pick(this.store, wp, 8 / this.surface.cam.z);
@@ -1732,11 +1802,14 @@ export class Interaction {
     const fontSize = this.app.worldSize(s.textSize);
     const box = w > 20 && h > 12
       ? normalizeRect(a.start, a.cur)
-      : { x: a.start.x, y: a.start.y - fontSize * 0.7, w: this.app.worldSize(360), h: fontSize * 1.6 };
+      : { x: a.start.x, y: a.start.y - fontSize * 0.7, w: this.app.textWrapWidthAt?.(a.start.x) ?? this.app.worldSize(360), h: fontSize * 1.6 };
     const obj = {
       id: uid('t'), type: 'text', ...box, text: '', rotation: 0,
       color: s.textColor, fontSize, align: 'left', valign: 'top',
-      font: s.textFont || 'ui', background: 'none'
+      font: s.textFont || 'ui', background: 'none',
+      // A box dragged out to a width wraps at that width; a tapped one at the
+      // usual line length. Either way it hugs its words until it gets there.
+      wrapW: box.w
     };
     this.placeOnPaper(obj);
     obj.attachedTo = this.lockedHostFor(obj) || undefined;
@@ -2242,6 +2315,7 @@ export class Interaction {
   }
 
   onDoubleClick(e) {
+    if (this.fitTextToWords(this.surface.screenPoint(e))) return;
     const wp = this.surface.toWorld(e);
     const hit = pick(this.store, wp, 8 / this.surface.cam.z);
     if (!hit) {
