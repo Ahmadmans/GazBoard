@@ -11984,6 +11984,98 @@ module.exports.run = async (win, app) => {
     lang.bnFace > 0 && lang.bnDrawnWithOurs,
     `faces loaded for Bangla: ${lang.bnFace}; drawn with ours rather than a stand-in: ${lang.bnDrawnWithOurs} (widths ${lang.bnWidths.join(' vs ')})`);
 
+  /* ---- the Linux store page: what AppImageHub and app stores read ---- */
+  {
+    const root = path.join(__dirname, '..');
+    const rfs = require('node:fs');
+    const pkg = JSON.parse(rfs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    const extra = (pkg.build?.linux?.extraFiles || []).find((f) => /metainfo/.test(f.to || ''));
+    let xml = '';
+    try { xml = rfs.readFileSync(path.join(root, extra?.from || 'packaging/linux/gazboard.appdata.xml'), 'utf8'); } catch { /* reported below */ }
+    const tag = (name) => (xml.match(new RegExp(`<${name}[^>]*>([^<]*)</${name}>`)) || [])[1] || null;
+    const shots = [...xml.matchAll(/<image>([^<]+)<\/image>/g)].map((m) => m[1]);
+    const missing = shots.filter((u) => !rfs.existsSync(path.join(root, 'Screenshots', u.split('/').pop())));
+    const desktopName = (pkg.build?.linux?.desktop?.entry?.StartupWMClass || '') + '.desktop';
+    check('the store page ships in the AppImage and names the right app',
+      !!extra && extra.to === 'usr/share/metainfo/gazboard.appdata.xml' && tag('launchable') === desktopName &&
+      tag('name') === pkg.build.productName && tag('project_license') === pkg.license,
+      `copied from ${extra?.from} to ${extra?.to}; launchable ${tag('launchable')} (desktop file ${desktopName}); ` +
+      `name ${tag('name')}; licence ${tag('project_license')} vs package ${pkg.license}; ${xml.length} bytes read`);
+    check('every store screenshot is one of the README screenshots in the repo',
+      shots.length >= 1 && missing.length === 0 && shots.every((u) => u.startsWith('https://raw.githubusercontent.com/fahim9778/GazBoard/main/Screenshots/')),
+      `${shots.length} screenshots; not in Screenshots/: ${missing.join(', ') || 'none'}`);
+  }
+
+  /* ---- a closed side panel leaves nothing at the window edge ---- */
+  {
+    const edge = async (side) => {
+      const img = await win.webContents.capturePage();
+      const { width: W, height: H } = img.getSize();
+      const band = (x0) => {
+        const w = 6, y0 = Math.round(H * 0.35), h = Math.round(H * 0.3);
+        const px = img.crop({ x: x0, y: y0, width: w, height: h }).toBitmap();
+        let sum = 0; for (let i = 0; i < px.length; i += 4) sum += (px[i] + px[i + 1] + px[i + 2]) / 3;
+        return sum / (px.length / 4);
+      };
+      const outer = side === 'right' ? band(W - 6) : band(0);
+      const inner = side === 'right' ? band(W - 120) : band(114);
+      return { outer: +outer.toFixed(2), inner: +inner.toFixed(2), diff: +(inner - outer).toFixed(2) };
+    };
+    const state = () => js(`
+      const p = document.getElementById('panel'); const r = p.getBoundingClientRect();
+      const cx = Math.min(window.innerWidth - 2, Math.max(1, r.left + r.width / 2)), cy = r.top + 120;
+      const hit = document.elementFromPoint(cx, cy);
+      return { open: p.classList.contains('open'), visibility: getComputedStyle(p).visibility,
+        hitInside: !!hit && p.contains(hit), focusInside: p.contains(document.activeElement),
+        left: Math.round(r.left), right: Math.round(r.right), vw: window.innerWidth, dir: document.documentElement.dir };
+    `);
+    const panelRound = async (side) => {
+      await js(`const a = window.app; a.newBoard(true); a.textEditor.cancel(); a.panels.close(); a.surface.invalidate();`);
+      await sleep(80);
+      await js(`window.app.panels.settings();`);
+      await sleep(260);
+      const opened = await state();
+      // the open panel still takes real clicks: tap its first button with the mouse
+      const clicked = await js(`
+        const b = document.querySelector('#panel .btn'); if (!b) return { found: false };
+        const r = b.getBoundingClientRect(); window.__panelClicks = 0;
+        b.addEventListener('click', () => window.__panelClicks++, { once: true });
+        return { found: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      `);
+      if (clicked.found) {
+        win.webContents.sendInputEvent({ type: 'mouseDown', x: clicked.x, y: clicked.y, button: 'left', clickCount: 1 });
+        win.webContents.sendInputEvent({ type: 'mouseUp', x: clicked.x, y: clicked.y, button: 'left', clickCount: 1 });
+        await sleep(120);
+      }
+      const clicks = await js(`return window.__panelClicks || 0;`);
+      await js(`window.app.panels.close();`);
+      await sleep(40);
+      const midSlide = await state();
+      await sleep(400);
+      const closed = await state();
+      const pixels = await edge(side);
+      return { opened, clicks, midSlide, closed, pixels };
+    };
+    const en = await panelRound('right');
+    await js(`const i = await import('app://board/js/i18n.js'); await i.setLanguage('ar');`);
+    await sleep(150);
+    const ar = await panelRound('left');
+    await js(`const i = await import('app://board/js/i18n.js'); await i.setLanguage('en'); window.app.panels.close();`);
+    await sleep(150);
+    for (const [name, r] of [['left to right', en], ['Arabic, right to left', ar]]) {
+      check(`${name}: an open panel is shown and takes a real click`,
+        r.opened.open && r.opened.visibility === 'visible' && r.opened.hitInside && r.clicks === 1,
+        `open ${r.opened.open}, visibility ${r.opened.visibility}, the point in its middle is ${r.opened.hitInside ? '' : 'NOT '}the panel, ` +
+        `mouse clicks that reached its first button: ${r.clicks} (panel ${r.opened.left}-${r.opened.right} of ${r.opened.vw}, dir "${r.opened.dir}")`);
+      check(`${name}: closing still slides, and then the panel is gone — no shadow, nothing to tab to`,
+        r.midSlide.visibility === 'visible' && !r.closed.open && r.closed.visibility === 'hidden' && !r.closed.focusInside,
+        `40ms into closing: ${r.midSlide.visibility}; after: ${r.closed.visibility}, focus inside ${r.closed.focusInside}`);
+      check(`${name}: the window edge is the same colour as the board beside it`,
+        Math.abs(r.pixels.diff) < 1.5,
+        `edge band ${r.pixels.outer}, board 120px in ${r.pixels.inner} — a gap over 1.5 is the old shadow strip`);
+    }
+  }
+
   /* ---- the optional Chinese font: fetched once, checked, kept, removable ---- */
   const fontPack = await js(`
     const a = window.app;

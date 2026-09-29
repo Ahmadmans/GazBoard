@@ -119,7 +119,13 @@
           "StartupWMClass": "gazboard"
         }
       },
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "extraFiles": [
+        {
+          "from": "packaging/linux/gazboard.appdata.xml",
+          "to": "usr/share/metainfo/gazboard.appdata.xml"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
