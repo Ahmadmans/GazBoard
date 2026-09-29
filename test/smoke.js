@@ -12028,6 +12028,22 @@ module.exports.run = async (win, app) => {
       `${shots.length} screenshots; not in Screenshots/: ${missing.join(', ') || 'none'}`);
   }
 
+  /* ---- the Mac download is signed, so macOS never calls it damaged ---- */
+  {
+    const rfs = require('node:fs');
+    const root = path.join(__dirname, '..');
+    const mac = JSON.parse(rfs.readFileSync(path.join(root, 'package.json'), 'utf8')).build?.mac || {};
+    const wf = rfs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
+    check('the Mac app gets a free ad-hoc signature instead of none',
+      mac.identity === '-' && mac.hardenedRuntime === false,
+      `identity ${JSON.stringify(mac.identity)} (wanted "-"; null means unsigned, which macOS reports as "damaged" with no Open Anyway), ` +
+      `hardenedRuntime ${JSON.stringify(mac.hardenedRuntime)} (wanted false; an ad-hoc app with it on can refuse to launch)`);
+    check('and the release build refuses to ship a Mac app whose signature is broken',
+      /codesign --verify --deep --strict/.test(wf),
+      /codesign --verify --deep --strict/.test(wf) ? 'release.yml verifies every Mac app before it is attached'
+        : 'release.yml has no "codesign --verify --deep --strict" step — without it a broken signature only shows up on somebody\'s Mac');
+  }
+
   /* ---- a closed side panel leaves nothing at the window edge ---- */
   {
     const edge = async (side) => {

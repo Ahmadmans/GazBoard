@@ -159,22 +159,27 @@ jobs:
       - name: Build for Apple Silicon and Intel
         run: npx electron-builder --mac --arm64 --x64 --publish never
         env:
-          # Nothing is signed yet: without this, electron-builder hunts for a
-          # Developer ID in the keychain and fails the build when it finds none.
+          # There is no paid Apple certificate: without this, electron-builder
+          # hunts for a Developer ID in the keychain. package.json asks for an
+          # ad-hoc signature instead ("identity": "-"), which needs no account.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Check the app was actually produced, and is launchable
         run: |
           set -e
           ls -la dist/*.dmg dist/*.zip
-          APP="dist/mac-arm64/GazBoard.app"
-          [ -d "$APP" ] || APP="dist/mac/GazBoard.app"
-          echo "Inspecting $APP"
-          # Apple Silicon refuses to run a binary with no signature at all, so
-          # confirm the ad-hoc one is present before shipping the download.
-          codesign -dv "$APP" 2>&1 | head -5 || true
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist"
+          # Every app in the build must carry a whole, valid signature. An app
+          # whose signature is missing or broken is what macOS calls "damaged",
+          # with no Open Anyway button - so a broken one fails the build here
+          # instead of reaching anybody's Mac.
+          for APP in dist/mac-arm64/GazBoard.app dist/mac/GazBoard.app; do
+            [ -d "$APP" ] || continue
+            echo "Inspecting $APP"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+            codesign -dv "$APP" 2>&1 | grep -E "Signature|Identifier|Format"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"
+            /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist"
+          done
 
       - name: Upload build output as a workflow artifact
         uses: actions/upload-artifact@v4

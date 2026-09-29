@@ -96,7 +96,8 @@
       ],
       "category": "public.app-category.productivity",
       "icon": "src/assets/icon.icns",
-      "identity": null,
+      "identity": "-",
+      "hardenedRuntime": false,
       "darkModeSupport": true,
       "extendInfo": {
         "NSHighResolutionCapable": true,
