@@ -12266,6 +12266,59 @@ module.exports.run = async (win, app) => {
       `anything rubs out); the ink under it was erased: ${r.touched}`);
   }
 
+  /* ---- the Windows Ink trail: a head start for the pen, never part of the board ---- */
+  {
+    const r = await js(`const a = window.app, sf = a.surface, it = a.interaction, trail = a.inkTrail; a.toast = () => {};
+      a.newBoard(true); a.textEditor.cancel(); a.setSelection([]);
+      const keep = { effect: a.settings.penEffect, color: a.settings.penColor, width: a.settings.penWidth, presenter: trail.presenter, on: trail.on, z: sf.cam.z };
+      const offByDefault = a.settings.inkTrail === false && trail.on === false;
+      await a.panels.settings(); await new Promise((res) => setTimeout(res, 150));
+      const row = [...document.querySelectorAll('#panel *')].some((n) => n.childElementCount === 0 && /Windows Ink trail/.test(n.textContent || ''));
+      const lowLatencyRow = [...document.querySelectorAll('#panel *')].some((n) => n.childElementCount === 0 && /Low-latency inking/.test(n.textContent || ''));
+      a.panels.close();
+      const rect = sf.canvas.getBoundingClientRect();
+      const ev = (x, y, b) => ({ pointerId: 7, pointerType: 'pen', button: 0, buttons: b, clientX: rect.left + x, clientY: rect.top + y, shiftKey: false, altKey: false, pressure: 0.5 });
+      let calls = [];
+      const fake = { updateInkTrailStartPoint(e, st) { calls.push({ x: Math.round(e.clientX - rect.left), color: st.color, d: +st.diameter.toFixed(2) }); } };
+      const stroke = (tool, z = 1) => { calls = []; a.setTool(tool); sf.cam.z = z; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2;
+        const before = a.store.objects.length; const x0 = sf.width / 2 - 100, y0 = sf.height / 2;
+        it.onDown(ev(x0, y0, 1)); for (let i = 1; i <= 12; i++) it.onMove(ev(x0 + i * 8, y0 + (i % 3), 1)); it.onUp(ev(x0 + 96, y0, 0));
+        const added = a.store.objects.slice(before);
+        const out = { calls: calls.slice(), added: added.length, keys: added[0] ? Object.keys(added[0]).sort().join(',') : '' };
+        a.store.clear(); return out; };
+      a.settings.penEffect = 'none'; a.settings.penColor = '#e81123'; a.settings.penWidth = 4;
+      trail.presenter = null; trail.on = false;
+      const off = stroke('pen');
+      trail.presenter = fake; trail.on = true;
+      const pen = stroke('pen');
+      const zoomed = stroke('pen', 2);
+      const hl = stroke('highlighter');
+      a.settings.penEffect = 'rainbow'; const rainbow = stroke('pen'); a.settings.penEffect = 'none';
+      a.ruler.visible = true; a.ruler.x = -99999; const ruled = stroke('pen'); a.ruler.visible = false;
+      trail.presenter = { updateInkTrailStartPoint() { throw new Error('refused'); } };
+      const throwing = stroke('pen');
+      trail.presenter = keep.presenter; trail.on = keep.on; sf.cam.z = keep.z;
+      a.settings.penEffect = keep.effect; a.settings.penColor = keep.color; a.settings.penWidth = keep.width;
+      a.setTool('select'); a.newBoard(true);
+      return { offByDefault, row, lowLatencyRow, off, pen, zoomed, hl, rainbow, ruled, throwing };`);
+    const d = (c) => c.calls.map((q) => q.d).filter((v, i, all) => all.indexOf(v) === i).join('/');
+    check('the Windows Ink trail is off by default, and its switch is only offered on Windows',
+      r.offByDefault && r.lowLatencyRow && r.row === (process.platform === 'win32'),
+      `setting off and trail idle: ${r.offByDefault}; Settings opened (low-latency switch seen): ${r.lowLatencyRow}; Windows Ink switch in Settings: ${r.row} on ${process.platform} (it should appear only on win32, where Windows can actually paint it)`);
+    check('switched on, every pen move hands Windows the end of the ink, in the ink colour at the ink width',
+      r.off.calls.length === 0 && r.pen.calls.length >= 10 && r.pen.calls.every((c) => c.color === '#e81123' && c.d === 4) &&
+      r.zoomed.calls.length >= 10 && r.zoomed.calls.every((c) => c.d === 8),
+      `off: ${r.off.calls.length} updates (wanted 0); on: ${r.pen.calls.length} updates, colours ${[...new Set(r.pen.calls.map((c) => c.color))].join('/')}, ` +
+      `widths ${d(r.pen)} (wanted #e81123 at 4); zoomed x2: ${r.zoomed.calls.length} updates, widths ${d(r.zoomed)} (wanted 8)`);
+    check('the highlighter, rainbow ink and the ruler never get a trail, since Windows would paint it wrong',
+      r.hl.calls.length === 0 && r.rainbow.calls.length === 0 && r.ruled.calls.length === 0 && r.hl.added === 1 && r.rainbow.added === 1 && r.ruled.added >= 1,
+      `updates: highlighter ${r.hl.calls.length}, rainbow ${r.rainbow.calls.length}, with the ruler out ${r.ruled.calls.length} (all wanted 0); ` +
+      `strokes still drawn: ${r.hl.added}, ${r.rainbow.added}, ${r.ruled.added}`);
+    check('the trail never touches the board: the saved stroke is the same with it on or off, even if Windows refuses',
+      r.off.added === 1 && r.pen.added === 1 && r.throwing.added === 1 && r.pen.keys === r.off.keys && r.throwing.keys === r.off.keys,
+      `strokes saved: off ${r.off.added}, on ${r.pen.added}, refused ${r.throwing.added}; stored fields off [${r.off.keys}] vs on [${r.pen.keys}] vs refused [${r.throwing.keys}]`);
+  }
+
   /* ---- a shape's outline follows the theme like the rest of the ink ---- */
   {
     const r = await js(`const a = window.app, sf = a.surface; const was = a.settings.theme;

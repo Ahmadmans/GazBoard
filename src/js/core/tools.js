@@ -696,6 +696,7 @@ export class Interaction {
         } else offer({ ...wp, p: pressure });
 
         if (added) a.obj.bbox = bboxOfPoints(a.obj.points);
+        this.sendInkTrail(e, a, wp, pressure);
         break;
       }
       case 'erase': {
@@ -1274,6 +1275,23 @@ export class Interaction {
     if (i < 0) i = nearestPageIndex(pages, b.x + b.w / 2, b.y + b.h / 2);
     const { dx, dy } = offsetIntoRect(b, rects[i]);
     if (dx || dy) for (const o of objs) translateObject(o, dx, dy);
+  }
+
+  /**
+   * Hand Windows the end of the ink so it can paint the rest of the way to the
+   * pen (see inktrail.js). Only where the pen and the ink agree: a plain pen,
+   * no ruler, not under the plastic, still on the sheet. Anywhere else the
+   * stroke draws exactly as it always has, just without the head start.
+   */
+  sendInkTrail(e, a, wp, pressure) {
+    const trail = this.app.inkTrail;
+    if (!e || !trail || !trail.on) return false;
+    const o = a.obj;
+    if (o.tool !== 'pen' || (o.effect && o.effect !== 'none')) return false;
+    if (a.ruled || a.blocked || this.ruler.visible) return false;
+    if (a.sheet && !inRect(a.sheet, wp.x, wp.y)) return false;
+    const weight = this.app.settings.pressure ? 0.55 + clamp(pressure, 0, 1) * 0.9 : 1;
+    return trail.update(e, inkPaint(o.color), (o.width || 4) * weight * this.surface.cam.z);
   }
 
   startStroke(e, wp, tool) {

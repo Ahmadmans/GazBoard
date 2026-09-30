@@ -53,6 +53,7 @@ const PRECACHE_ASSETS = [
   './js/core/erase.js',
   './js/core/hit.js',
   './js/core/ink.js',
+  './js/core/inktrail.js',
   './js/core/pages.js',
   './js/core/recognize.js',
   './js/core/render.js',

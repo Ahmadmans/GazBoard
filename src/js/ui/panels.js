@@ -8,6 +8,7 @@ import { TEMPLATES, templateThumb } from '../templates.js';
 import { PAPER, paperForPage } from './pdfdialog.js';
 import { exportBoards } from '../board-export.js';
 import { BOARD_COLORS, PATTERNS } from './palettes.js';
+import { inkTrailSupported } from '../core/inktrail.js';
 
 /**
  * How a paired computer that is NOT currently visible should be shown.
@@ -1175,6 +1176,9 @@ export function createPanels(app) {
             t('Shows the key for each tool in the corner of its button — V, P, H, E and so on — so you can switch without stopping to look them up.')),
           row(t('Low-latency inking'), mkToggle(() => s.lowLatencyInk, (v) => { s.lowLatencyInk = v; app.toast(t('Takes effect next time GazBoard opens')); }),
             t('Shaves a little lag off the pen by letting the canvas skip a buffering step. On some graphics drivers this makes the board flicker while you write or drag, especially with imported document pages on it — leave it off if you see that. Applies when the app is reopened.')),
+          // Windows only: elsewhere the switch would do nothing, so it is not offered.
+          inkTrailSupported() ? row(t('Windows Ink trail (experimental)'), mkToggle(() => s.inkTrail === true, (v) => { s.inkTrail = v; app.inkTrail?.setEnabled(v); }),
+            t('Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.')) : null,
           row(t('Autosave'), mkToggle(() => s.autosave, (v) => (s.autosave = v)), t('Boards are stored locally on this computer.'))
         ),
         /*

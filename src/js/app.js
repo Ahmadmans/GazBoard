@@ -7,6 +7,7 @@ import { Store, withAttached, withGroups, groupMembers, worldBounds, boundsOf } 
 import { scaleObject, translateObject } from './core/transform.js';
 import { Surface } from './core/surface.js';
 import { Interaction } from './core/tools.js';
+import { InkTrail } from './core/inktrail.js';
 import { pick, ghost } from './core/hit.js';
 import { uid, debounce, clamp, unionBox } from './core/util.js';
 import { pageRects, stripBounds, pageIndexForBox, nearestPageIndex, offsetIntoRect, PAGE_GAP } from './core/pages.js';
@@ -60,7 +61,7 @@ export const DEFAULT_SETTINGS = {
   shapeKind: 'rect', shapeStroke: '#201f1e', shapeFill: 'none', shapeLineWidth: 3, shapeDash: null,
   inkToShape: false, pressure: true, wheelZoom: false, returnToSelect: true, autosave: true,
   showGroupOutlines: true,
-  edgePan: true, importQuality: 2, lowLatencyInk: false, laserColor: '#ff2d2d',
+  edgePan: true, importQuality: 2, lowLatencyInk: false, inkTrail: false, laserColor: '#ff2d2d',
   /*
    * The letters under the tool icons.
    *
@@ -164,6 +165,10 @@ class App {
     this.applyTheme();
     this.surface = new Surface(document.getElementById('c'), this.store, { lowLatency: !!this.settings.lowLatencyInk });
     this.surface.showGroupOutlines = this.settings.showGroupOutlines !== false;
+    // Windows paints the last sliver of pen ink itself when this is on. Off
+    // by default while it is an experiment; see inktrail.js.
+    this.inkTrail = new InkTrail(this.surface.canvas);
+    this.inkTrail.setEnabled(!!this.settings.inkTrail);
     this.tool = 'pen';
     this.clipboard = [];
     this.clipStamp = null;
@@ -2079,6 +2084,7 @@ class App {
     };
     this.settings = { ...DEFAULT_SETTINGS, ...keep };
     this.saveSettings();
+    this.inkTrail?.setEnabled(!!this.settings.inkTrail);
     this.interaction.hideInkPointer();
     this.setTool(this.tool);
     this.surface.invalidate();

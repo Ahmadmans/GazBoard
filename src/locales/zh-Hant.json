@@ -930,5 +930,7 @@
  "Remove the Chinese font": "移除中文字型",
  "Download ({size})": "下載（{size}）",
  "Downloading… {pct}%": "正在下載… {pct}%",
- "Add a font file…": "加入字型檔案…"
+ "Add a font file…": "加入字型檔案…",
+ "Windows Ink trail (experimental)": "Windows Ink 筆跡跟隨（實驗性）",
+ "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "讓 Windows 直接把筆畫最新的一小段畫到螢幕上，使筆跡更緊貼筆尖——Microsoft Whiteboard 就是這樣做的。只有普通筆會使用它；螢光筆、彩虹和星河墨水以及直尺照舊繪製。你的白板不會有任何改變。"
 }
