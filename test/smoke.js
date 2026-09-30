@@ -12512,6 +12512,75 @@ module.exports.run = async (win, app) => {
       `text ${JSON.stringify(r.text)}; runs ${r.runs}; caret after the pasted words ${r.caretAtEnd}`);
   }
 
+  /* ---- rich text from a phone: style sheets, and pasting through the app ---- */
+  {
+    const r = await js(`const R = await import('app://board/js/core/richtext.js');
+      const mobile = '<html><head><style><!-- .c1 { font-weight: 700 } .c2 { color: #C00000 } span.c3 { font-style: italic; text-decoration: underline } --></style></head><body><p><span>Word on a </span><span class="c1">phone</span> <span class="c2 c3">styles</span></p></body></html>';
+      const got = R.htmlToRuns(mobile);
+      return { text: got.text, runs: JSON.stringify(got.runs) };`);
+    check('formatting written as a style sheet (Word on a phone) is kept when pasted, just like inline formatting',
+      r.text === 'Word on a phone styles' && r.runs === '[{"t":"Word on a "},{"t":"phone","b":1},{"t":" "},{"t":"styles","i":1,"u":1,"c":"#c00000"}]',
+      `text ${JSON.stringify(r.text)}; runs ${r.runs}`);
+  }
+  {
+    const wc = win.webContents;
+    const prep = await js(`const a = window.app, te = a.textEditor; a.newBoard(true); te.cancel(); a.setSelection([]);
+      const put = window.board?.clipboardWriteForTests; if (!put) return { hook: false };
+      const okPut = put({ text: 'from word', html: '<p><b>from</b> <span style="color:#107c10">word</span></p>' });
+      a.store.add({ id: 'pb', type: 'text', x: 0, y: 0, w: 400, h: 40, text: 'here ', fontSize: 24, rotation: 0 }, 'x');
+      a.beginTextEdit(a.store.get('pb')); await new Promise((res) => setTimeout(res, 60));
+      te.el.setSelectionRange(te.el.value.length);
+      const b = document.querySelector('#ctxbar [data-paste]'); if (!b) return { hook: true, okPut, button: false };
+      const rc = b.getBoundingClientRect(); return { hook: true, okPut, button: true, x: Math.round(rc.left + rc.width / 2), y: Math.round(rc.top + rc.height / 2) };`);
+    if (prep.button) {
+      wc.sendInputEvent({ type: 'mouseDown', x: prep.x, y: prep.y, button: 'left', clickCount: 1 }); await sleep(30);
+      wc.sendInputEvent({ type: 'mouseUp', x: prep.x, y: prep.y, button: 'left', clickCount: 1 }); await sleep(250);
+    }
+    const r = await js(`const a = window.app, te = a.textEditor; const out = { active: te.active };
+      if (te.active) te.commit();
+      const o = a.store.get('pb'); out.text = o && o.text; out.runs = JSON.stringify(o && o.runs);
+      try { window.board.clipboardWriteForTests?.({ clear: true }); } catch {}
+      a.newBoard(true); return out;`);
+    check('the format bar\'s Paste button brings in bold and colour straight from the clipboard, and typing carries on',
+      prep.hook && prep.okPut && prep.button && r.active && r.text === 'here from word' && r.runs === '[{"t":"here "},{"t":"from","b":1},{"t":" "},{"t":"word","c":"#107c10"}]',
+      `test hook ${prep.hook}, clipboard written ${prep.okPut}, button found ${prep.button}; still typing ${r.active}; text ${JSON.stringify(r.text)}; runs ${r.runs}`);
+  }
+
+  /* ---- words pasted straight onto the board keep their formatting too ---- */
+  {
+    const r = await js(`const a = window.app; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel(); a.setSelection([]); a.clipboard = [];
+      const out = {};
+      const put = window.board?.clipboardWriteForTests;
+      out.hook = !!put;
+      if (put) {
+        out.put = put({ text: 'Menu paste keeps it', html: '<p>Menu <b>paste</b> keeps <span style="color:#0078d4">it</span></p>' });
+        await a.pasteAt({ x: 0, y: 0 });
+        const o = a.store.objects.find((q) => q.type === 'text');
+        out.menuText = o && o.text; out.menuRuns = JSON.stringify(o && o.runs);
+        put({ clear: true });
+      }
+      a.newBoard(true); a.setSelection([]);
+      const dt = new DataTransfer(); dt.setData('text/plain', 'Ctrl V keeps it'); dt.setData('text/html', '<i>Ctrl V</i> keeps <u>it</u>');
+      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      await new Promise((res) => setTimeout(res, 80));
+      const k = a.store.objects.find((q) => q.type === 'text');
+      out.keyText = k && k.text; out.keyRuns = JSON.stringify(k && k.runs);
+      const plain = new DataTransfer(); plain.setData('text/plain', 'just words');
+      a.newBoard(true); a.setSelection([]);
+      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: plain, bubbles: true, cancelable: true }));
+      await new Promise((res) => setTimeout(res, 80));
+      const p = a.store.objects.find((q) => q.type === 'text');
+      out.plainText = p && p.text; out.plainRuns = p ? String(p.runs) : 'none';
+      a.newBoard(true);
+      return out;`);
+    check('pasting formatted words onto the board (the Paste menu or Ctrl+V) makes a text box that keeps their bold, italic, underline and colour',
+      r.hook && r.put && r.menuText === 'Menu paste keeps it' && r.menuRuns === '[{"t":"Menu "},{"t":"paste","b":1},{"t":" keeps "},{"t":"it","c":"#0078d4"}]' &&
+      r.keyText === 'Ctrl V keeps it' && r.keyRuns === '[{"t":"Ctrl V","i":1},{"t":" keeps "},{"t":"it","u":1}]',
+      `Paste menu: ${JSON.stringify(r.menuText)} ${r.menuRuns} (hook ${r.hook}, written ${r.put}); Ctrl+V: ${JSON.stringify(r.keyText)} ${r.keyRuns}`);
+    check('plain words pasted onto the board still make a plain text box, exactly as before',
+      r.plainText === 'just words' && r.plainRuns === 'undefined', `text ${JSON.stringify(r.plainText)}; runs ${r.plainRuns}`);
+  }
+
   /* ---- rich text leaving the board: Copy text, Copy as picture, SVG ---- */
   {
     const r = await js(`const a = window.app; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();

@@ -103,8 +103,11 @@ function clipboardSignature() {
 function clipboardRead() {
   try {
     const image = cb.readImage('clipboard');
+    let html = '';
+    try { html = cb.readHTML('clipboard') || ''; } catch { html = ''; }
     return {
       text: cb.readText('clipboard') || '',
+      html,
       image: image && !image.isEmpty() ? image.toDataURL() : null,
       signature: clipboardSignature()
     };
@@ -147,6 +150,8 @@ function clipboardWriteForTests(payload) {
       const img = nativeImage.createFromDataURL(payload.image);
       if (!img || img.isEmpty()) return false;
       cb.writeImage(img);
+    } else if (payload && payload.html) {
+      cb.write({ text: String(payload.text || ''), html: String(payload.html) });
     } else {
       cb.writeText(String((payload && payload.text) || ''));
     }

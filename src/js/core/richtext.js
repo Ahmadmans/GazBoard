@@ -384,6 +384,14 @@ const SKIP = new Set(['STYLE', 'SCRIPT', 'HEAD', 'TITLE', 'META', 'LINK', 'NOSCR
  */
 export function htmlToRuns(html) {
   const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const rules = [];
+  for (const st of doc.querySelectorAll('style')) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(st.textContent || '');
+      for (const r of sheet.cssRules) if (r.selectorText && r.style) rules.push(r);
+    } catch { /* a style sheet it cannot read is simply not used */ }
+  }
   const out = [];
   const endsWithBreak = () => { const s = out.length ? out[out.length - 1].t : '\n'; return /\n$/.test(s) || !out.length; };
   const lastChar = () => (out.length ? out[out.length - 1].t.slice(-1) : '\n');
@@ -413,8 +421,17 @@ export function htmlToRuns(html) {
         const c = keepColour(toHexColour(ch.getAttribute('color')));
         if (c) next.c = c; else delete next.c;
       }
-      const s = ch.style;
-      if (s) {
+      /*
+       * The look can come from the page's own style sheet rather than the
+       * element: Word on a phone, and some web editors, write
+       * <span class="c3"> and put "c3 { font-weight: bold }" in a <style>
+       * block. Those rules are applied first, then the element's own style,
+       * so the nearer one wins the way it does on the page.
+       */
+      const looks = [];
+      for (const rule of rules) { try { if (ch.matches(rule.selectorText)) looks.push(rule.style); } catch { /* a selector the browser cannot test */ } }
+      if (ch.style) looks.push(ch.style);
+      for (const s of looks) {
         const w = s.fontWeight;
         if (w) { if (w === 'bold' || w === 'bolder' || parseInt(w, 10) >= 600) next.b = 1; else if (w === 'normal' || parseInt(w, 10) < 600) delete next.b; }
         if (s.fontStyle) { if (/italic|oblique/.test(s.fontStyle)) next.i = 1; else if (s.fontStyle === 'normal') delete next.i; }

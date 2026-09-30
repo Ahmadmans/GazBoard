@@ -322,6 +322,10 @@ function formatBar(app, bar) {
       colours.appendChild(b);
     }
     bar.appendChild(colours);
+    bar.appendChild(h('span', { class: 'bar-sep' }));
+    const paste = h('button', { title: t('Paste with formatting'), 'data-paste': '1', html: icon('paste', 17) });
+    paste.addEventListener('click', () => te.pasteFromClipboard());
+    bar.appendChild(paste);
   }
   syncFormat(app, bar);
   const stage = document.getElementById('stage').getBoundingClientRect();

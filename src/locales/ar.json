@@ -942,5 +942,7 @@
  "Copied as a picture": "تم النسخ كصورة",
  "Could not copy to the clipboard": "تعذّر النسخ إلى الحافظة",
  "Copied the text": "تم نسخ النص",
- "There are no words in what is selected": "لا توجد كلمات فيما حددته"
+ "There are no words in what is selected": "لا توجد كلمات فيما حددته",
+ "Paste with formatting": "لصق مع التنسيق",
+ "There is nothing to paste": "لا يوجد شيء للصق"
 }

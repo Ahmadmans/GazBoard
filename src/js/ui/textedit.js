@@ -11,6 +11,7 @@ import { fitFontSize, readableText, wrapText, clamp } from '../core/util.js';
 import { faceOf, noteTypeRange, inkPaint } from '../core/render.js';
 import { objectRuns, normalizeRuns, layoutRich, fitRichSize, htmlToRuns } from '../core/richtext.js';
 import { updateSelectionBar } from './contextmenu.js';
+import { t } from '../i18n.js';
 
 /* ---------- the editable box <-> plain offsets and runs ---------- */
 
@@ -289,6 +290,8 @@ export class TextEditor {
       ta.dispatchEvent(new Event('input'));
       return true;
     };
+    this._insertRich = insertRich;
+    this._insertPlain = insertPlain;
     ta.addEventListener('paste', (e) => {
       e.preventDefault();
       const plain = e.clipboardData?.getData('text/plain') || '';
@@ -677,6 +680,31 @@ export class TextEditor {
     document.execCommand('foreColor', false, hex || getComputedStyle(this.el).color);
     this.place();
     this.app.surface.invalidate();
+  }
+
+  /**
+   * Paste from the machine's clipboard through the app rather than through
+   * the keyboard. On a phone this matters: pasting from the keyboard's own
+   * clipboard strip types the words in as if they were typed, and the bold
+   * and colours copied in Word never arrive. Asking the clipboard directly
+   * gets the formatted copy too.
+   */
+  async pasteFromClipboard() {
+    if (!this.el || !window.board?.clipboardRead) return false;
+    let got = null;
+    try { got = await window.board.clipboardRead(); } catch { got = null; }
+    if (!this.el) return false;
+    if (document.activeElement !== this.el) this.el.focus();
+    const html = got && got.html ? String(got.html) : '';
+    const text = got && got.text ? String(got.text) : '';
+    if (html) {
+      const r = htmlToRuns(html);
+      if (r.runs && this._insertRich?.(r.runs)) return true;
+      if (!text && r.text) { this._insertPlain?.(r.text); return true; }
+    }
+    if (text) { this._insertPlain?.(text); return true; }
+    this.app.toast(t('There is nothing to paste'));
+    return false;
   }
 
   /** Is the caret (or the highlighted words) bold / italic / underlined? */

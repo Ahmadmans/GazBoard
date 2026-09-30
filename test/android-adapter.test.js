@@ -204,3 +204,25 @@ test('On Android, "Add a font file" opens the phone\'s own picker, since a WebVi
     `the Add-a-font-file button does not branch for Android:\n${row.slice(row.indexOf("Add a font file"), row.indexOf("Add a font file") + 200)}`);
   assert.match(row, /window\.board\.openDialog\(/, 'the Android branch does not ask the native picker');
 });
+
+test('Copy as picture and Copy text go through Android itself, not the WebView', async () => {
+  const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+  const { adapter, calls } = await setup(async (request) => {
+    if (request.method !== 'clipboard:write') throw new Error('unexpected ' + request.method);
+    return true;
+  });
+  const picture = await adapter.clipboardWrite({ image: PIXEL });
+  const words = await adapter.clipboardWrite({ text: 'plain', html: '<b>plain</b>' });
+  const sent = calls.filter((c) => c.method === 'clipboard:write').map((c) => c.args);
+  assert.deepEqual({ picture, words, sent },
+    { picture: true, words: true, sent: [{ image: PIXEL }, { text: 'plain', html: '<b>plain</b>' }] },
+    `a phone refuses a picture offered the browser way, so both copies must be handed to the native side; ` +
+    `got ${JSON.stringify({ picture, words, sent })}`);
+});
+
+test('A clipboard Android refuses is reported as not copied, never as a crash', async () => {
+  const { adapter } = await setup(async () => { throw new Error('Clipboard unavailable'); });
+  let got;
+  try { got = await adapter.clipboardWrite({ text: 'x' }); } catch (e) { got = 'threw: ' + e.message; }
+  assert.equal(got, false, `the app shows "Could not copy to the clipboard" on false; got ${JSON.stringify(got)}`);
+});

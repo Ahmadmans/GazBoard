@@ -942,5 +942,7 @@
  "Copied as a picture": "ছবি হিসেবে কপি হয়েছে",
  "Could not copy to the clipboard": "ক্লিপবোর্ডে কপি করা যায়নি",
  "Copied the text": "লেখা কপি হয়েছে",
- "There are no words in what is selected": "নির্বাচিত অংশে কোনো লেখা নেই"
+ "There are no words in what is selected": "নির্বাচিত অংশে কোনো লেখা নেই",
+ "Paste with formatting": "ফরম্যাটসহ পেস্ট",
+ "There is nothing to paste": "পেস্ট করার মতো কিছু নেই"
 }

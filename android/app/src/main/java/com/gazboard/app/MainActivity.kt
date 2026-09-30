@@ -397,10 +397,55 @@ class MainActivity : ComponentActivity() {
       // was too big to carry, or copying one would look like copying nothing
       // and the board's own older copy would wrongly stay in front.
       val handles = items.mapNotNull { it.uri?.toString() }.joinToString("|")
-      json("text" to text, "image" to image, "kind" to kind,
+      // The formatted copy as well, when the app that copied offered one - it
+      // is how bold and colour pasted from Word reach a box on the board.
+      val html = if (description?.hasMimeType("text/html") == true)
+        items.mapNotNull { it.htmlText }.joinToString("").take(2 * 1024 * 1024) else ""
+      json("text" to text, "html" to html, "image" to image, "kind" to kind,
         "signature" to "$kinds\u0000$text\u0000$handles")
     } catch (e: Exception) {
       nothing
+    }
+  }
+
+  /**
+   * Putting something on the phone's clipboard: "Copy as picture" and
+   * "Copy text". Only ever called because somebody pressed one of those - an
+   * ordinary Copy keeps objects inside the board and never comes here.
+   *
+   * A picture cannot go on Android's clipboard as pixels; it goes as a handle
+   * to a file the app shares out through its FileProvider, the same way a
+   * shared export does. Each copy gets a fresh file name, because an app that
+   * pasted the last one may still be holding a copy of it under the old name;
+   * the older files are cleared out first so they do not pile up.
+   *
+   * Words go up with their formatting (for Word, Docs, Gmail) and as plain
+   * text (for everything else) in the one clip.
+   */
+  fun writeClipboard(args: JsonObject): Boolean {
+    val image = args.str("image")
+    var clip: android.content.ClipData? = null
+    if (image.startsWith("data:image/")) {
+      val bytes = java.util.Base64.getDecoder().decode(image.substringAfter(','))
+      if (bytes.isEmpty()) return false
+      val folder = java.io.File(cacheDir, "exports").apply { mkdirs() }
+      folder.listFiles { f -> f.name.startsWith("clipboard-") }?.forEach { it.delete() }
+      val file = java.io.File(folder, "clipboard-${System.currentTimeMillis()}.png")
+      file.writeBytes(bytes)
+      val uri = androidx.core.content.FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.files", file)
+      clip = android.content.ClipData.newUri(contentResolver, "GazBoard", uri)
+    } else {
+      val text = args.str("text")
+      val html = args.str("html")
+      if (text.isEmpty() && html.isEmpty()) return false
+      clip = if (html.isNotEmpty()) android.content.ClipData.newHtmlText("GazBoard", text, html)
+        else android.content.ClipData.newPlainText("GazBoard", text)
+    }
+    val ready = clip ?: return false
+    return onMain {
+      val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+      manager.setPrimaryClip(ready)
+      true
     }
   }
 

@@ -35,6 +35,7 @@ const P = {
   chevronRight: 'M9 6l6 6-6 6',
   trash: 'M4.5 7h15M9.5 7V5h5v2M6.5 7l1 13h9l1-13M10 10.5v6.5M14 10.5v6.5',
   copy: 'M8 8h11v11H8zM5 16V5h11',
+  paste: 'M9 4h6v3H9zM7 5.5H5.5V20h13V5.5H17M8.5 11h7M8.5 14.5h7M8.5 18h4',
   front: 'M4 8l8-4 8 4-8 4zM4 12l8 4 8-4M4 16l8 4 8-4',
   lock: 'M6.5 10.5h11V20h-11zM9 10.5V8a3 3 0 0 1 6 0v2.5',
   unlock: 'M6.5 10.5h11V20h-11zM9 10.5V8a3 3 0 0 1 5.8-1',

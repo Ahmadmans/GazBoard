@@ -942,5 +942,7 @@
  "Copied as a picture": "已复制为图片",
  "Could not copy to the clipboard": "无法复制到剪贴板",
  "Copied the text": "已复制文字",
- "There are no words in what is selected": "所选内容中没有文字"
+ "There are no words in what is selected": "所选内容中没有文字",
+ "Paste with formatting": "带格式粘贴",
+ "There is nothing to paste": "没有可粘贴的内容"
 }

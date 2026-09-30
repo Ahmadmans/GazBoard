@@ -13,7 +13,7 @@ import { uid, debounce, clamp, unionBox } from './core/util.js';
 import { pageRects, stripBounds, pageIndexForBox, nearestPageIndex, offsetIntoRect, PAGE_GAP } from './core/pages.js';
 import { isNewer } from './core/version.js';
 import { emojiAspect, forgetEmojiMetrics, setDarkBoard } from './core/render.js';
-import { objectRuns, runsToHtml } from './core/richtext.js';
+import { objectRuns, runsToHtml, htmlToRuns } from './core/richtext.js';
 import { TextEditor } from './ui/textedit.js';
 import { initToolbar, syncToolbar } from './ui/toolbar.js';
 import { initPresentBar, syncPresentBar } from './ui/present.js';
@@ -1727,7 +1727,18 @@ class App {
   }
 
   /** A pasted line of text, as a box on the board. */
-  addPastedText(text, at) {
+  addPastedText(text, at, html = '') {
+    /*
+     * Words pasted onto the board keep the look they had where they were
+     * copied - bold, italic, underline, colour - exactly as they do when
+     * pasted into a box that is being typed in. Only when the formatted copy
+     * says nothing the plain one does not are the plain words used.
+     */
+    let runs = null;
+    if (html) {
+      const got = htmlToRuns(html);
+      if (got.runs && got.text.trim()) { runs = got.runs; text = got.text; }
+    }
     const o = {
       id: uid('t'), type: 'text', x: at.x - this.worldSize(210), y: at.y - this.worldSize(30),
       w: this.worldSize(420),
@@ -1736,6 +1747,9 @@ class App {
       fontSize: this.worldSize(this.settings.textSize),
       align: 'left', valign: 'top', font: this.settings.textFont, background: 'none'
     };
+    // The runs describe the text exactly as it is stored, so it is not trimmed
+    // out from under them (htmlToRuns has already dropped the loose ends).
+    if (runs) { o.text = text; o.runs = runs; }
     this.store.add(o, 'paste text');
     this.setSelection([o.id]);
     return o;
@@ -1940,7 +1954,7 @@ class App {
           return;
         } catch { /* fall through to whatever else is there */ }
       }
-      if (now.text && now.text.trim()) { this.addPastedText(now.text, point); return; }
+      if (now.text && now.text.trim()) { this.addPastedText(now.text, point, now.html); return; }
     }
 
     if (!held) { this.toast(t('Nothing copied yet'), 'help'); return; }
@@ -3196,7 +3210,7 @@ class App {
       const text = e.clipboardData?.getData('text/plain');
       if (text && text.trim()) {
         e.preventDefault();
-        this.addPastedText(text, this.pastePoint());
+        this.addPastedText(text, this.pastePoint(), e.clipboardData?.getData('text/html'));
         return;
       }
       if (this.clipboard.length) { e.preventDefault(); this.pasteAt(this.pastePoint()); }

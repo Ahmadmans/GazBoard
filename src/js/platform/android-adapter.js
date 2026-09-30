@@ -132,9 +132,15 @@ export function createAndroidAdapter(native = window.GazBoardNative) {
     // handle still counts towards the signature so copying one is not mistaken
     // for copying nothing.
     clipboardRead: () => guarded('clipboard:read'),
-    // Written the browser way from inside the WebView. Where the phone says
-    // no, the app says so rather than claiming a copy that never happened.
-    clipboardWrite: (payload) => browserClipboardWrite(payload),
+    // Written by Android itself: a WebView cannot put a picture on the phone's
+    // clipboard, and a phone asked to do it the browser way just refuses. The
+    // browser route is only the fallback for a native side that says no, and
+    // where both refuse the app says so rather than claiming a copy.
+    clipboardWrite: async (payload) => {
+      const r = await guarded('clipboard:write', payload || {});
+      if (r === true) return true;
+      return browserClipboardWrite(payload);
+    },
     // The page paints itself; the status bar and the navigation bar are
     // Android's and have to be told which theme is on screen.
     setTheme: (want) => call('theme:set', want),

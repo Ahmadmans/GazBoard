@@ -942,5 +942,7 @@
  "Copied as a picture": "Copiado como imagen",
  "Could not copy to the clipboard": "No se pudo copiar al portapapeles",
  "Copied the text": "Texto copiado",
- "There are no words in what is selected": "Lo seleccionado no tiene texto"
+ "There are no words in what is selected": "Lo seleccionado no tiene texto",
+ "Paste with formatting": "Pegar con formato",
+ "There is nothing to paste": "No hay nada para pegar"
 }
