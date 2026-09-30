@@ -315,3 +315,125 @@ export function hasStyle(runs, text, a, b, key, base = {}) {
   }
   return any;
 }
+
+/* ------------------------------------------------------------------ *
+ *  Leaving the board, and arriving on it
+ * ------------------------------------------------------------------ */
+
+const escHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/**
+ * Runs as HTML that Word, Google Docs or an email will keep the look of.
+ * `base` is the box's own style; a colour of null means "leave it to the
+ * other app", which is what the board's automatic ink should become there.
+ */
+export function runsToHtml(runs, text, base = {}) {
+  const list = validRuns(runs, text) || [{ t: String(text ?? '') }];
+  let out = '';
+  for (const r of list) {
+    const eff = effective(r, base);
+    const css = [];
+    if (eff.bold) css.push('font-weight:bold');
+    if (eff.italic) css.push('font-style:italic');
+    if (eff.underline) css.push('text-decoration:underline');
+    if (eff.color) css.push('color:' + eff.color);
+    const body = escHtml(r.t).replace(/\n/g, '<br>');
+    out += css.length ? `<span style="${css.join(';')}">${body}</span>` : body;
+  }
+  return out;
+}
+
+/*
+ * The colours not worth keeping from somebody else's page. Text copied from a
+ * document is nearly always explicitly black (or "windowtext"); keeping that
+ * would pin it black on a dark board, where the board's own ink turns light.
+ * White or near-white text - copied from a dark web page - would vanish on a
+ * white board. Everything in between is a colour somebody chose.
+ */
+function keepColour(hex) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+  if (!m) return null;
+  const [r, g, b] = [m[1], m[2], m[3]].map((v) => parseInt(v, 16) / 255);
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum < 0.12 || lum > 0.9 ? null : hex.toLowerCase();
+}
+
+let colourCtx = null;
+function toHexColour(v) {
+  if (!v || /inherit|initial|currentcolor|windowtext|auto/i.test(v)) return null;
+  try {
+    colourCtx = colourCtx || document.createElement('canvas').getContext('2d');
+    colourCtx.fillStyle = '#000001';
+    colourCtx.fillStyle = v;
+    const got = colourCtx.fillStyle;
+    if (got === '#000001') return null;          // not a colour it understood
+    return /^#[0-9a-f]{6}$/i.test(got) ? got : null;
+  } catch { return null; }
+}
+
+const BLOCKS = new Set(['P', 'DIV', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR', 'BLOCKQUOTE', 'PRE', 'UL', 'OL', 'TABLE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER']);
+const SKIP = new Set(['STYLE', 'SCRIPT', 'HEAD', 'TITLE', 'META', 'LINK', 'NOSCRIPT', 'TEMPLATE', 'IMG', 'SVG', 'svg', 'OBJECT', 'IFRAME']);
+
+/**
+ * Somebody else's HTML (Word, a web page, another GazBoard box) as runs.
+ *
+ * Only what the board can draw is kept: bold, italic, underline and a colour.
+ * Fonts, sizes, backgrounds, links and pictures are dropped. Paragraphs and
+ * line breaks become new lines; everything else about the layout goes.
+ * Returns { text, runs } - runs is null when nothing was styled.
+ */
+export function htmlToRuns(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const out = [];
+  const endsWithBreak = () => { const s = out.length ? out[out.length - 1].t : '\n'; return /\n$/.test(s) || !out.length; };
+  const lastChar = () => (out.length ? out[out.length - 1].t.slice(-1) : '\n');
+  const walk = (node, st, pre) => {
+    for (const ch of node.childNodes) {
+      if (ch.nodeType === 3) {
+        let t = ch.data;
+        if (!pre) {
+          // Ordinary white space collapses the way a page shows it; a
+          // non-breaking space is somebody's deliberate space and stays.
+          t = t.replace(/[ \t\r\n\f]+/g, ' ');
+          if (/\s/.test(lastChar()) || endsWithBreak()) t = t.replace(/^ +/, '');
+          t = t.replace(/\u00a0/g, ' ');
+        }
+        if (t) out.push({ t, ...st });
+        continue;
+      }
+      if (ch.nodeType !== 1) continue;             // comments: Word leaves plenty
+      const tag = ch.tagName.toUpperCase();
+      if (SKIP.has(ch.tagName) || SKIP.has(tag)) continue;
+      if (tag === 'BR') { out.push({ t: '\n', ...st }); continue; }
+      const next = { ...st };
+      if (tag === 'B' || tag === 'STRONG') next.b = 1;
+      if (tag === 'I' || tag === 'EM') next.i = 1;
+      if (tag === 'U' || tag === 'INS') next.u = 1;
+      if (tag === 'FONT' && ch.getAttribute('color')) {
+        const c = keepColour(toHexColour(ch.getAttribute('color')));
+        if (c) next.c = c; else delete next.c;
+      }
+      const s = ch.style;
+      if (s) {
+        const w = s.fontWeight;
+        if (w) { if (w === 'bold' || w === 'bolder' || parseInt(w, 10) >= 600) next.b = 1; else if (w === 'normal' || parseInt(w, 10) < 600) delete next.b; }
+        if (s.fontStyle) { if (/italic|oblique/.test(s.fontStyle)) next.i = 1; else if (s.fontStyle === 'normal') delete next.i; }
+        const deco = s.textDecorationLine || s.textDecoration;
+        if (deco) { if (/underline/.test(deco)) next.u = 1; else if (/none/.test(deco)) delete next.u; }
+        if (s.color) { const c = keepColour(toHexColour(s.color)); if (c) next.c = c; else delete next.c; }
+      }
+      const block = BLOCKS.has(tag);
+      if (block && !endsWithBreak()) out.push({ t: '\n' });
+      if (tag === 'TD' || tag === 'TH') { if (out.length && !/[\s]$/.test(lastChar())) out.push({ t: ' ' }); }
+      walk(ch, next, pre || tag === 'PRE');
+      if (block && !endsWithBreak()) out.push({ t: '\n' });
+    }
+  };
+  walk(doc.body || doc.documentElement, {}, false);
+  // No trailing new lines or spaces: a pasted paragraph ends where its words do.
+  while (out.length && /^[\s]*$/.test(out[out.length - 1].t)) out.pop();
+  if (out.length) out[out.length - 1].t = out[out.length - 1].t.replace(/\s+$/, '');
+  const runs = normalizeRuns(out);
+  const text = runsText(out);
+  return { text, runs: runs && runsText(runs) === text ? runs : null };
+}

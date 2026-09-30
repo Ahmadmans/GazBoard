@@ -936,5 +936,11 @@
  "Bold ({key})": "Negrita ({key})",
  "Italic ({key})": "Cursiva ({key})",
  "Underline ({key})": "Subrayado ({key})",
- "Automatic colour": "Color automático"
+ "Automatic colour": "Color automático",
+ "Copy as picture": "Copiar como imagen",
+ "Copy text": "Copiar texto",
+ "Copied as a picture": "Copiado como imagen",
+ "Could not copy to the clipboard": "No se pudo copiar al portapapeles",
+ "Copied the text": "Texto copiado",
+ "There are no words in what is selected": "Lo seleccionado no tiene texto"
 }

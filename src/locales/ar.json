@@ -936,5 +936,11 @@
  "Bold ({key})": "غامق ({key})",
  "Italic ({key})": "مائل ({key})",
  "Underline ({key})": "تسطير ({key})",
- "Automatic colour": "لون تلقائي"
+ "Automatic colour": "لون تلقائي",
+ "Copy as picture": "نسخ كصورة",
+ "Copy text": "نسخ النص",
+ "Copied as a picture": "تم النسخ كصورة",
+ "Could not copy to the clipboard": "تعذّر النسخ إلى الحافظة",
+ "Copied the text": "تم نسخ النص",
+ "There are no words in what is selected": "لا توجد كلمات فيما حددته"
 }

@@ -2,6 +2,7 @@
 // boards cross in bounded chunks, so imported pages never hit a message limit.
 import { generatePdfFromHtml } from './web-pdf.js';
 import { t } from '../i18n.js';
+import { browserClipboardWrite } from './web-clipboard.js';
 
 const FILE_ROOT = 'https://appassets.androidplatform.net/files/';
 const CHUNK_BYTES = 96 * 1024;
@@ -131,6 +132,9 @@ export function createAndroidAdapter(native = window.GazBoardNative) {
     // handle still counts towards the signature so copying one is not mistaken
     // for copying nothing.
     clipboardRead: () => guarded('clipboard:read'),
+    // Written the browser way from inside the WebView. Where the phone says
+    // no, the app says so rather than claiming a copy that never happened.
+    clipboardWrite: (payload) => browserClipboardWrite(payload),
     // The page paints itself; the status bar and the navigation bar are
     // Android's and have to be told which theme is on screen.
     setTheme: (want) => call('theme:set', want),

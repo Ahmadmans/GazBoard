@@ -12419,7 +12419,7 @@ module.exports.run = async (win, app) => {
       // a paste brings words, never the page they came from
       a.beginTextEdit(a.store.get('rn')); await new Promise((res) => setTimeout(res, 50));
       te.el.setSelectionRange(te.el.value.length);
-      const dt = new DataTransfer(); dt.setData('text/plain', ' pasted'); dt.setData('text/html', '<b style="font-size:40px;background:yellow">pasted</b>');
+      const dt = new DataTransfer(); dt.setData('text/plain', ' pasted'); dt.setData('text/html', '<b style="font-size:40px;background:yellow">&nbsp;pasted</b>');
       te.el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
       out.afterPaste = JSON.stringify(te.runs()); out.pasteText = te.el.value;
       out.markup = te.el.innerHTML.includes('background') || te.el.innerHTML.includes('font-size');
@@ -12431,8 +12431,8 @@ module.exports.run = async (win, app) => {
       r.shape === '{"t":"shape label","r":[{"t":"shape "},{"t":"label","c":"#0078d4"}]}' &&
       r.table === '{"c":{"0,0":"cell text","1,1":"other"},"r":{"0,0":[{"t":"cell "},{"t":"text","i":1}]}}',
       `note ${r.note}; shape ${r.shape}; table ${r.table}`);
-    check('pasting into a box brings the words only, never the fonts or backgrounds',
-      r.pasteText === 'sticky words pasted' && !r.markup && r.afterPaste === '[{"t":"sticky","b":1},{"t":" words pasted"}]',
+    check('pasting into a box brings the words and their bold, never the fonts or backgrounds',
+      r.pasteText === 'sticky words pasted' && !r.markup && r.afterPaste === '[{"t":"sticky","b":1},{"t":" words"},{"t":" pasted","b":1}]',
       `text ${JSON.stringify(r.pasteText)}; foreign markup in the box ${r.markup}; runs ${r.afterPaste}`);
   }
 
@@ -12469,6 +12469,95 @@ module.exports.run = async (win, app) => {
     check('formatted words survive being saved or sent to another computer and opened again',
       r.onTheWire === r.want && r.reopened === r.want,
       `wanted ${r.want}; in the saved/sent file ${r.onTheWire}; after opening it ${r.reopened}`);
+  }
+
+  /* ---- rich text arriving from Word or a web page ---- */
+  {
+    const r = await js(`const R = await import('app://board/js/core/richtext.js');
+      const word = '<html><head><style>p{mso-style-name:Normal}</style></head><body><!--StartFragment--><p class=MsoNormal><span style="font-family:Calibri;font-size:14pt;color:black">Plain </span><b><span style="font-size:14pt;color:#000000">bold</span></b><span style="color:black"> and </span><span style="color:#C00000;background:yellow">red</span></p><p><i>second</i> <u>line</u></p><!--EndFragment--></body></html>';
+      const got = R.htmlToRuns(word);
+      const web = R.htmlToRuns('<div style="color:#ffffff">white on dark</div><div><strong>strong</strong> <em>emph</em> <a href="x">link</a><img src="x"></div>');
+      const round = R.htmlToRuns(R.runsToHtml([{ t: 'a ' }, { t: 'b', b: 1 }, { t: ' ' }, { t: 'c', i: 1, c: '#0078d4' }, { t: '\\nd', u: 1 }], 'a b c\\nd', {}));
+      return { text: got.text, runs: JSON.stringify(got.runs), webText: web.text, webRuns: JSON.stringify(web.runs), round: JSON.stringify(round) };`);
+    check('pasting from Word keeps bold, italic, underline and colour, drops fonts, sizes, highlights and plain black',
+      r.text === 'Plain bold and red\nsecond line' && r.runs === '[{"t":"Plain "},{"t":"bold","b":1},{"t":" and "},{"t":"red","c":"#c00000"},{"t":"\\n"},{"t":"second","i":1},{"t":" "},{"t":"line","u":1}]',
+      `text ${JSON.stringify(r.text)}; runs ${r.runs}`);
+    check('pasting from a web page keeps strong and em, drops white text colour, links and pictures',
+      r.webText === 'white on dark\nstrong emph link' && r.webRuns === '[{"t":"white on dark\\n"},{"t":"strong","b":1},{"t":" "},{"t":"emph","i":1},{"t":" link"}]',
+      `text ${JSON.stringify(r.webText)}; runs ${r.webRuns}`);
+    check('what GazBoard copies out as formatted text comes back in exactly as it was',
+      r.round === '{"text":"a b c\\nd","runs":[{"t":"a "},{"t":"b","b":1},{"t":" "},{"t":"c","i":1,"c":"#0078d4"},{"t":"\\nd","u":1}]}',
+      `round trip ${r.round}`);
+  }
+
+  {
+    const r = await js(`const a = window.app, te = a.textEditor; a.newBoard(true); te.cancel(); a.setSelection([]);
+      a.store.add({ id: 'pz', type: 'text', x: 0, y: 0, w: 400, h: 40, text: 'start ', fontSize: 24, rotation: 0 }, 'x');
+      const paste = (html, plain) => { const dt = new DataTransfer(); dt.setData('text/plain', plain); if (html) dt.setData('text/html', html);
+        te.el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); };
+      a.beginTextEdit(a.store.get('pz')); await new Promise((res) => setTimeout(res, 50));
+      te.el.setSelectionRange(te.el.value.length);
+      paste('<b>bold</b> <span style="color:#e81123">red</span>', 'bold red');
+      te.el.setSelectionRange(te.el.value.length);
+      te._plainPaste = true;
+      paste('<b> ignored-bold</b>', ' ignored-bold');
+      const caret = te.el.selectionStart, len = te.el.value.length;
+      te.commit();
+      const o = a.store.get('pz');
+      const out = { text: o.text, runs: JSON.stringify(o.runs), caretAtEnd: caret === len };
+      a.newBoard(true);
+      return out;`);
+    check('pasting formatted words into a box keeps their look; Ctrl+Shift+V pastes the words alone, in the style being typed',
+      r.text === 'start bold red ignored-bold' && r.runs === '[{"t":"start "},{"t":"bold","b":1},{"t":" "},{"t":"red ignored-bold","c":"#e81123"}]' && r.caretAtEnd,
+      `text ${JSON.stringify(r.text)}; runs ${r.runs}; caret after the pasted words ${r.caretAtEnd}`);
+  }
+
+  /* ---- rich text leaving the board: Copy text, Copy as picture, SVG ---- */
+  {
+    const r = await js(`const a = window.app; a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      const { buildSvg } = await import('app://board/js/export.js');
+      const { showContextMenu } = await import('app://board/js/ui/contextmenu.js');
+      const runs = [{ t: 'Force ' }, { t: 'equals', b: 1, c: '#e81123' }, { t: ' mass' }];
+      a.store.addMany([
+        { id: 'ct', type: 'text', x: 0, y: 0, w: 360, h: 60, text: 'Force equals mass', runs, fontSize: 40, rotation: 0, font: 'sans' },
+        { id: 'ctb', type: 'table', x: 0, y: 120, w: 240, h: 80, rows: 1, cols: 2, cells: { '0,0': 'm', '0,1': 'kg' }, cellRuns: { '0,1': [{ t: 'kg', i: 1 }] }, rotation: 0 }
+      ], 'x');
+      a.setSelection(['ct', 'ctb']);
+      const out = {};
+      const stage = document.getElementById('stage').getBoundingClientRect();
+      showContextMenu(a, { clientX: stage.left + 200, clientY: stage.top + 200 }, true);
+      out.menu = [...document.querySelectorAll('.pop .menu .mi, .pop .menu button, .menu [role=menuitem], .menu .item')].map((n) => n.textContent.trim()).filter(Boolean).join(' | ');
+      a.hideMenus?.();
+      out.textOk = await a.copyText();
+      const got = await window.board.clipboardRead();
+      out.clipText = got.text;
+      out.clipHtml = window.board.clipboardHtmlForTests ? window.board.clipboardHtmlForTests() : '(no hook)';
+      out.picOk = await a.copyAsPicture();
+      const pic = await window.board.clipboardRead();
+      out.hasPicture = !!pic.image;
+      if (pic.image) {
+        const img = new Image(); img.src = pic.image; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height).data; let red = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 60 && d[i + 2] < 80) red++;
+        out.picSize = img.width + 'x' + img.height; out.redPixels = red;
+      }
+      const svg = buildSvg(a, { x: -20, y: -20, w: 420, h: 260 });
+      out.svgBold = /<tspan font-weight="600" fill="#e81123">equals<\\/tspan>/.test(svg);
+      out.svgItalic = /<tspan font-style="italic">kg<\\/tspan>/.test(svg);
+      out.svgWords = /Force /.test(svg) && / mass/.test(svg);
+      try { window.board.clipboardWriteForTests?.({ clear: true }); } catch {}
+      a.newBoard(true);
+      return out;`);
+    check('right-clicking a selection offers Copy as picture and Copy text, next to the ordinary Copy',
+      /Copy as picture/.test(r.menu) && /Copy text/.test(r.menu) && /Copy/.test(r.menu), `menu: ${r.menu}`);
+    check('Copy text puts the words on the clipboard, plain for chat apps and formatted for Word',
+      r.textOk && r.clipText === 'Force equals mass\n\nm\tkg' && /font-weight:bold;color:#e81123">equals/.test(r.clipHtml) && /<table/.test(r.clipHtml) && /font-style:italic">kg/.test(r.clipHtml),
+      `copied ${r.textOk}; plain ${JSON.stringify(r.clipText)}; formatted ${String(r.clipHtml).slice(0, 400)}`);
+    check('Copy as picture puts a picture of the selection on the clipboard, formatting and all',
+      r.picOk && r.hasPicture && r.redPixels > 100, `copied ${r.picOk}; picture ${r.hasPicture} ${r.picSize || ''}; red pixels ${r.redPixels}`);
+    check('an SVG export keeps bold, italic and colour on just the words that had them',
+      r.svgBold && r.svgItalic && r.svgWords, `bold red "equals" ${r.svgBold}; italic "kg" ${r.svgItalic}; the other words there ${r.svgWords}`);
   }
 
   /* ---- the Windows Ink trail: a head start for the pen, never part of the board ---- */

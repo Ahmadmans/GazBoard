@@ -81,6 +81,7 @@ const PRECACHE_ASSETS = [
   './js/platform/platform.js',
   './js/platform/android-adapter.js',
   './js/platform/web-adapter.js',
+  './js/platform/web-clipboard.js',
   './js/platform/web-storage.js',
   './js/platform/web-files.js',
   './js/platform/web-pdf.js',

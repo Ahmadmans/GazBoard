@@ -9,7 +9,7 @@
 import { boundsOf } from '../core/store.js';
 import { fitFontSize, readableText, wrapText, clamp } from '../core/util.js';
 import { faceOf, noteTypeRange, inkPaint } from '../core/render.js';
-import { objectRuns, normalizeRuns, layoutRich, fitRichSize } from '../core/richtext.js';
+import { objectRuns, normalizeRuns, layoutRich, fitRichSize, htmlToRuns } from '../core/richtext.js';
 import { updateSelectionBar } from './contextmenu.js';
 
 /* ---------- the editable box <-> plain offsets and runs ---------- */
@@ -255,11 +255,13 @@ export class TextEditor {
 
     ta.addEventListener('input', () => { this.place(); app.surface.invalidate(); });
     /*
-     * Only words come in, never somebody else's page.
+     * Words come in with the look the board can draw, and nothing else.
      *
-     * Pasting into an editable box would otherwise bring the source's markup
-     * along - its fonts, sizes, backgrounds, links - none of which the board
-     * can draw. Text arrives as text, in whatever style is being typed.
+     * Pasting into an editable box would otherwise bring the source's whole
+     * page along - its fonts, sizes, backgrounds, links - none of which the
+     * board can draw. What survives from Word or a web page is bold, italic,
+     * underline and colour (see htmlToRuns). Ctrl+Shift+V pastes the words
+     * alone, in whatever style is being typed.
      */
     const insertPlain = (text) => {
       const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
@@ -268,9 +270,36 @@ export class TextEditor {
         if (line) document.execCommand('insertText', false, line);
       });
     };
+    const insertRich = (runs) => {
+      const s = document.getSelection();
+      if (!s || !s.rangeCount || !ta.contains(s.getRangeAt(0).startContainer)) return false;
+      const range = s.getRangeAt(0);
+      range.deleteContents();
+      const holder = document.createElement('div');
+      fill(holder, runs);
+      const nodes = [...holder.childNodes];
+      if (!nodes.length) return true;
+      const frag = document.createDocumentFragment();
+      for (const n of nodes) frag.appendChild(n);
+      range.insertNode(frag);
+      const after = document.createRange();
+      after.setStartAfter(nodes[nodes.length - 1]);
+      after.collapse(true);
+      s.removeAllRanges(); s.addRange(after);
+      ta.dispatchEvent(new Event('input'));
+      return true;
+    };
     ta.addEventListener('paste', (e) => {
       e.preventDefault();
-      insertPlain(e.clipboardData?.getData('text/plain'));
+      const plain = e.clipboardData?.getData('text/plain') || '';
+      const html = this._plainPaste ? '' : (e.clipboardData?.getData('text/html') || '');
+      this._plainPaste = false;
+      if (html) {
+        const got = htmlToRuns(html);
+        if (got.runs && insertRich(got.runs)) return;
+        if (!plain && got.text) { insertPlain(got.text); return; }
+      }
+      insertPlain(plain);
     });
     ta.addEventListener('drop', (e) => {
       e.preventDefault();
@@ -278,6 +307,8 @@ export class TextEditor {
     });
     ta.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Ctrl+Shift+V: the words only, whatever they looked like where they came from.
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'V' || e.key === 'v')) this._plainPaste = true;
       if (e.key === 'Escape') { e.preventDefault(); this.cancel(); app.surface.canvas.focus(); }
       else if (e.key === 'Enter' && !(e.ctrlKey || e.metaKey) && !e.isComposing) {
         // A new line, never a new block - the board has no paragraphs to give it.

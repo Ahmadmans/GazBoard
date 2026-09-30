@@ -3,6 +3,7 @@
 import { worldBounds } from './core/store.js';
 import { pageRects } from './core/pages.js';
 import { wrapText } from './core/util.js';
+import { objectRuns, layoutRich, effective } from './core/richtext.js';
 import { layoutPages } from './ui/pdfdialog.js';
 import { FONT, faceOf, CURTAIN_COLOR } from './core/render.js';
 import { t } from './i18n.js';
@@ -71,7 +72,7 @@ export async function exportSvg(app) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
 
-function buildSvg(app, box) {
+export function buildSvg(app, box) {
   const doc = app.store.doc;
   const parts = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${box.w}" height="${box.h}" viewBox="${box.x} ${box.y} ${box.w} ${box.h}">`);
@@ -89,12 +90,12 @@ function buildSvg(app, box) {
       parts.push(`<path d="${d}" fill="none" stroke="${o.color}" stroke-width="${o.width}" stroke-linecap="round" stroke-linejoin="round"${hl ? ` opacity="${o.opacity ?? 0.38}"` : ''}${rot}/>`);
     } else if (o.type === 'shape') {
       parts.push(shapeSvg(o, rot));
-      if (o.text) parts.push(textSvg(meas, o.text, o.x + 10, o.y + 10, o.w - 20, o.h - 20, { align: 'center', valign: 'middle', color: o.textColor || '#201f1e', size: o.fontSize || 20 }, rot));
+      if (o.text) parts.push(textSvg(meas, o.text, o.x + 10, o.y + 10, o.w - 20, o.h - 20, { align: 'center', valign: 'middle', color: o.textColor || '#201f1e', size: o.fontSize || 20, runs: objectRuns(o), bold: o.bold, italic: o.italic, font: o.font }, rot));
     } else if (o.type === 'note') {
       parts.push(`<rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" rx="4" fill="${o.color}"${rot}/>`);
-      if (o.text) parts.push(textSvg(meas, o.text, o.x + 14, o.y + 14, o.w - 28, o.h - 28, { align: o.align || 'center', valign: 'middle', color: o.textColor || '#201f1e', size: o.fontSize || 22 }, rot));
+      if (o.text) parts.push(textSvg(meas, o.text, o.x + 14, o.y + 14, o.w - 28, o.h - 28, { align: o.align || 'center', valign: 'middle', color: o.textColor || '#201f1e', size: o.fontSize || 22, runs: objectRuns(o), bold: o.bold, italic: o.italic, underline: o.underline, font: o.font }, rot));
     } else if (o.type === 'text') {
-      parts.push(textSvg(meas, o.text, o.x, o.y, o.w, o.h, { align: o.align || 'left', valign: 'top', color: o.color, size: o.fontSize || 24, font: o.font }, rot));
+      parts.push(textSvg(meas, o.text, o.x, o.y, o.w, o.h, { align: o.align || 'left', valign: 'top', color: o.color, size: o.fontSize || 24, font: o.font, runs: objectRuns(o), bold: o.bold, italic: o.italic, underline: o.underline }, rot));
     } else if (o.type === 'emoji') {
       /*
        * An emoji goes out as the character itself, not as a picture of it.
@@ -119,7 +120,7 @@ function buildSvg(app, box) {
       for (let r = 0; r <= o.rows; r++) parts.push(`<line x1="${o.x}" y1="${o.y + r * ch}" x2="${o.x + o.w}" y2="${o.y + r * ch}" stroke="${o.stroke || '#605e5c'}" stroke-width="${o.lineWidth || 2}"/>`);
       for (const [key, val] of Object.entries(o.cells || {})) {
         const [r, c] = key.split(',').map(Number);
-        parts.push(textSvg(meas, val, o.x + c * cw + 6, o.y + r * ch + 6, cw - 12, ch - 12, { align: 'center', valign: 'middle', color: '#201f1e', size: 16 }, ''));
+        parts.push(textSvg(meas, val, o.x + c * cw + 6, o.y + r * ch + 6, cw - 12, ch - 12, { align: 'center', valign: 'middle', color: '#201f1e', size: 16, runs: objectRuns(o, key) }, ''));
       }
       parts.push('</g>');
     }
@@ -163,6 +164,7 @@ function shapeSvg(o, rot) {
 function textSvg(meas, text, x, y, w, h, opt, rot) {
   const size = opt.size || 20;
   const family = faceOf(opt.font);      // every face, not just handwriting
+  if (opt.runs) return richTextSvg(meas, x, y, w, h, opt, rot, size, family);
   meas.font = `${size}px ${family}`;
   const lines = wrapText(meas, text, w);
   const lh = size * 1.28;
@@ -172,6 +174,35 @@ function textSvg(meas, text, x, y, w, h, opt, rot) {
   const tx = opt.align === 'center' ? x + w / 2 : opt.align === 'right' ? x + w : x;
   const spans = lines.map((l, i) => `<tspan x="${tx}" y="${(ty + i * lh).toFixed(1)}">${esc(l)}</tspan>`).join('');
   return `<text font-family="${esc(family).replace(/"/g, "'")}" font-size="${size}" fill="${opt.color || '#201f1e'}" text-anchor="${anchor}"${rot}>${spans}</text>`;
+}
+
+/*
+ * Styled words in an SVG: the same line breaks the board makes, each line a
+ * text chunk of its own, each styled stretch a <tspan> carrying its weight,
+ * slant, underline and colour. Anything that opens an SVG - a browser,
+ * Inkscape, PowerPoint - shows them as they were on the board.
+ */
+function richTextSvg(meas, x, y, w, h, opt, rot, size, family) {
+  const base = { family, weight: '400', bold: !!opt.bold, italic: !!opt.italic, underline: !!opt.underline, color: opt.color || '#201f1e', size };
+  const lines = layoutRich(meas, opt.runs, w, base);
+  const lh = size * 1.28;
+  let ty = y + size;
+  if (opt.valign === 'middle') ty = y + (h - lines.length * lh) / 2 + size;
+  const anchor = opt.align === 'center' ? 'middle' : opt.align === 'right' ? 'end' : 'start';
+  const tx = opt.align === 'center' ? x + w / 2 : opt.align === 'right' ? x + w : x;
+  const rows = lines.map((line, i) => {
+    const segs = line.segs.map((sg) => {
+      const e = effective(sg.st, base);
+      const attrs = [];
+      if (e.bold) attrs.push('font-weight="600"');
+      if (e.italic) attrs.push('font-style="italic"');
+      if (e.underline) attrs.push('text-decoration="underline"');
+      if (e.color && e.color !== base.color) attrs.push(`fill="${esc(e.color)}"`);
+      return attrs.length ? `<tspan ${attrs.join(' ')}>${esc(sg.t)}</tspan>` : esc(sg.t);
+    }).join('');
+    return `<tspan x="${tx}" y="${(ty + i * lh).toFixed(1)}">${segs}</tspan>`;
+  }).join('');
+  return `<text xml:space="preserve" font-family="${esc(family).replace(/"/g, "'")}" font-size="${size}" fill="${esc(base.color)}" text-anchor="${anchor}"${rot}>${rows}</text>`;
 }
 
 /* ------------------------------------------------------------------ *

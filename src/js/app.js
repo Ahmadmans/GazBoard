@@ -13,6 +13,7 @@ import { uid, debounce, clamp, unionBox } from './core/util.js';
 import { pageRects, stripBounds, pageIndexForBox, nearestPageIndex, offsetIntoRect, PAGE_GAP } from './core/pages.js';
 import { isNewer } from './core/version.js';
 import { emojiAspect, forgetEmojiMetrics, setDarkBoard } from './core/render.js';
+import { objectRuns, runsToHtml } from './core/richtext.js';
 import { TextEditor } from './ui/textedit.js';
 import { initToolbar, syncToolbar } from './ui/toolbar.js';
 import { initPresentBar, syncPresentBar } from './ui/present.js';
@@ -1649,6 +1650,8 @@ class App {
 
       case 'export.png': this.checkOffPageBeforeExport().then((go) => go && exportPng(this, { scale: 2 })); break;
       case 'export.pngSelection': exportPng(this, { scale: 2, selectionOnly: true }); break;
+      case 'edit.copyPicture': this.copyAsPicture(); break;
+      case 'edit.copyText': this.copyText(); break;
       case 'export.svg': this.checkOffPageBeforeExport().then((go) => go && exportSvg(this)); break;
       case 'export.pdf': this.exportPdfWithSetup(); break;
       case 'view.fitPage': this.fitToPage(this.currentPageIndex()); break;
@@ -1765,6 +1768,66 @@ class App {
       this.clipboardNow().then((c) => { if (c?.signature != null) this.clipStamp = c.signature; });
     }
     this.toast(this.clipboard.length > 1 ? t('{n} items copied', { n: this.clipboard.length }) : t('{n} item copied', { n: this.clipboard.length }));
+  }
+
+  /**
+   * The selection as a picture on the machine's clipboard, to paste into a
+   * chat, a slide or an email. Drawn exactly as "Export selection as PNG"
+   * draws it. Ctrl+C is untouched: it still keeps objects inside the board.
+   */
+  async copyAsPicture() {
+    if (!this.surface.selection.size || !window.board?.clipboardWrite) return false;
+    let b = this.surface.selectionBounds();
+    b = { x: b.x - 24, y: b.y - 24, w: b.w + 48, h: b.h + 48 };
+    const s = Math.min(2, 8000 / Math.max(b.w, b.h));
+    const image = this.surface.renderTo(b, s, true).toDataURL('image/png');
+    const ok = await window.board.clipboardWrite({ image });
+    this.toast(ok ? t('Copied as a picture') : t('Could not copy to the clipboard'));
+    return ok;
+  }
+
+  /** The words on the selected objects, in reading order, for Copy text. */
+  selectedWords() {
+    const objs = this.selected.filter((o) => ['text', 'note', 'shape', 'table'].includes(o.type) && !o.hidden);
+    objs.sort((p, q) => (Math.abs(p.y - q.y) > 20 ? p.y - q.y : p.x - q.x));
+    const plain = [], html = [];
+    for (const o of objs) {
+      if (o.type === 'table') {
+        const rows = o.rows || 0, cols = o.cols || 0;
+        const tr = [], tp = [];
+        for (let r = 0; r < rows; r++) {
+          const cells = [], cp = [];
+          for (let c = 0; c < cols; c++) {
+            const key = r + ',' + c, v = o.cells?.[key] || '';
+            cp.push(v.replace(/\n/g, ' '));
+            cells.push(`<td>${runsToHtml(objectRuns(o, key), v, {})}</td>`);
+          }
+          tp.push(cp.join('\t')); tr.push(`<tr>${cells.join('')}</tr>`);
+        }
+        if (tp.some((l) => l.trim())) { plain.push(tp.join('\n')); html.push(`<table border="1" style="border-collapse:collapse">${tr.join('')}</table>`); }
+        continue;
+      }
+      if (!o.text) continue;
+      /*
+       * The box's own colour goes along only when somebody chose it. The
+       * default ink is "whatever reads on this board", which elsewhere means
+       * the other app's own default - not black pinned in place.
+       */
+      const own = o.type === 'note' ? o.textColor : o.type === 'shape' ? o.textColor : o.color;
+      const colour = own && own.toLowerCase() !== '#201f1e' ? own : null;
+      plain.push(o.text);
+      html.push(`<p>${runsToHtml(objectRuns(o), o.text, { bold: !!o.bold, italic: !!o.italic, underline: !!o.underline, color: colour })}</p>`);
+    }
+    return { text: plain.join('\n\n'), html: html.join('') };
+  }
+
+  /** The words, formatting and all, on the machine's clipboard. */
+  async copyText() {
+    const { text, html } = this.selectedWords();
+    if (!text || !window.board?.clipboardWrite) { this.toast(t('There are no words in what is selected')); return false; }
+    const ok = await window.board.clipboardWrite({ text, html });
+    this.toast(ok ? t('Copied the text') : t('Could not copy to the clipboard'));
+    return ok;
   }
 
   /**

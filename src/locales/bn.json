@@ -936,5 +936,11 @@
  "Bold ({key})": "বোল্ড ({key})",
  "Italic ({key})": "ইটালিক ({key})",
  "Underline ({key})": "আন্ডারলাইন ({key})",
- "Automatic colour": "স্বয়ংক্রিয় রং"
+ "Automatic colour": "স্বয়ংক্রিয় রং",
+ "Copy as picture": "ছবি হিসেবে কপি",
+ "Copy text": "লেখা কপি",
+ "Copied as a picture": "ছবি হিসেবে কপি হয়েছে",
+ "Could not copy to the clipboard": "ক্লিপবোর্ডে কপি করা যায়নি",
+ "Copied the text": "লেখা কপি হয়েছে",
+ "There are no words in what is selected": "নির্বাচিত অংশে কোনো লেখা নেই"
 }

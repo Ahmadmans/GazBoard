@@ -41,15 +41,41 @@ const crypto = require('node:crypto');
  */
 const SMOKE = process.argv.includes('--smoke');
 const standIn = SMOKE && !process.env.CI && process.env.GAZBOARD_REAL_CLIPBOARD !== '1'
-  ? { text: '', image: null } : null;
+  ? { text: '', image: null, html: '' } : null;
 const cb = standIn ? {
   availableFormats: () => [...(standIn.text ? ['text/plain'] : []), ...(standIn.image ? ['image/png'] : [])],
   readText: () => standIn.text,
   readImage: () => standIn.image || nativeImage.createEmpty(),
-  writeText: (t) => { standIn.text = String(t); standIn.image = null; },
-  writeImage: (img) => { standIn.image = img; standIn.text = ''; },
-  clear: () => { standIn.text = ''; standIn.image = null; }
+  readHTML: () => standIn.html,
+  writeText: (t) => { standIn.text = String(t); standIn.image = null; standIn.html = ''; },
+  writeImage: (img) => { standIn.image = img; standIn.text = ''; standIn.html = ''; },
+  write: (d) => { standIn.text = d.text ? String(d.text) : ''; standIn.html = d.html ? String(d.html) : ''; standIn.image = d.image || null; },
+  clear: () => { standIn.text = ''; standIn.image = null; standIn.html = ''; }
 } : clipboard;
+
+/**
+ * Putting something ON the machine's clipboard because somebody asked to -
+ * "Copy as picture" and "Copy text". Never called by an ordinary Ctrl+C,
+ * which keeps objects inside the board and leaves the clipboard alone.
+ *
+ * Words go up as plain text and as formatted text at once, so Word keeps the
+ * bold and the colours while a chat box takes the plain words.
+ */
+function clipboardWrite(payload) {
+  try {
+    const d = {};
+    if (payload && payload.text) d.text = String(payload.text);
+    if (payload && payload.html) d.html = String(payload.html);
+    if (payload && payload.image) {
+      const img = nativeImage.createFromDataURL(payload.image);
+      if (!img || img.isEmpty()) return false;
+      d.image = img;
+    }
+    if (!d.text && !d.html && !d.image) return false;
+    cb.write(d);
+    return true;
+  } catch { return false; }
+}
 
 function clipboardSignature() {
   try {
@@ -132,9 +158,10 @@ contextBridge.exposeInMainWorld('board', {
   info: () => ipcRenderer.invoke('app:info'),
   clipboardSignature,
   clipboardRead,
+  clipboardWrite,
   // The suite is written against the English wording, so a smoke run is in
   // English whatever language the machine it runs on is set to.
-  ...(SMOKE ? { clipboardWriteForTests, smoke: true, clipboardIsStandIn: !!standIn } : {}),
+  ...(SMOKE ? { clipboardWriteForTests, clipboardHtmlForTests: () => { try { return cb.readHTML('clipboard') || ''; } catch { return ''; } }, smoke: true, clipboardIsStandIn: !!standIn } : {}),
 
   readFile: (p) => ipcRenderer.invoke('fs:readFile', p),
   // On the desktop the path names the file already; the web build has to work

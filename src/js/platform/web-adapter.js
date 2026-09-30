@@ -6,6 +6,7 @@ import * as files from './web-files.js';
 import { generatePdfFromHtml } from './web-pdf.js';
 import * as updater from './update-manager.js';
 import { t } from '../i18n.js';
+import { browserClipboardWrite } from './web-clipboard.js';
 
 const APP_VERSION = '__APP_VERSION__';
 updater.setAppVersion(APP_VERSION);
@@ -80,6 +81,7 @@ export function createWebAdapter() {
         return { text: '', image: null, signature: null };
       }
     },
+    clipboardWrite: (payload) => browserClipboardWrite(payload),
 
     boards: {
       list: () => storage.listBoards(),

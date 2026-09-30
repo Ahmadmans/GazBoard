@@ -39,6 +39,7 @@ export function showContextMenu(app, e, fromSelectionBar = false) {
     menu.appendChild(item(t('Unlock'), 'unlock', () => app.command('edit.lock')));
     menu.appendChild(h('div', { class: 'menu-sep' }));
     menu.appendChild(item(t('Copy'), 'copy', () => app.command('edit.copy'), { key: 'Ctrl+C' }));
+    menu.appendChild(item(t('Copy as picture'), 'image', () => app.command('edit.copyPicture')));
     menu.appendChild(item(t('Export selection as PNG…'), 'image', () => app.command('export.pngSelection')));
     openPopover({ x: e.clientX, y: e.clientY }, menu, { key: 'ctx' });
     return;
@@ -48,6 +49,10 @@ export function showContextMenu(app, e, fromSelectionBar = false) {
     if (editable) menu.appendChild(item(t('Edit text'), 'text', () => app.beginTextEdit(one), { key: 'F2' }));
     menu.appendChild(item(t('Cut'), 'copy', () => app.command('edit.cut'), { key: 'Ctrl+X' }));
     menu.appendChild(item(t('Copy'), 'copy', () => app.command('edit.copy'), { key: 'Ctrl+C' }));
+    // Out of the board and into another app. Ctrl+C above keeps objects in here.
+    menu.appendChild(item(t('Copy as picture'), 'image', () => app.command('edit.copyPicture')));
+    if (app.selected.some((o) => ['text', 'note', 'shape', 'table'].includes(o.type) && (o.text || (o.cells && Object.keys(o.cells).length))))
+      menu.appendChild(item(t('Copy text'), 'text', () => app.command('edit.copyText')));
     menu.appendChild(item(t('Duplicate'), 'duplicate', () => app.command('edit.duplicate'), { key: 'Ctrl+D' }));
     menu.appendChild(h('div', { class: 'menu-sep' }));
     const grouped = app.selectedGroups().size > 0;

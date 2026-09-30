@@ -936,5 +936,11 @@
  "Bold ({key})": "加粗 ({key})",
  "Italic ({key})": "倾斜 ({key})",
  "Underline ({key})": "下划线 ({key})",
- "Automatic colour": "自动颜色"
+ "Automatic colour": "自动颜色",
+ "Copy as picture": "复制为图片",
+ "Copy text": "复制文字",
+ "Copied as a picture": "已复制为图片",
+ "Could not copy to the clipboard": "无法复制到剪贴板",
+ "Copied the text": "已复制文字",
+ "There are no words in what is selected": "所选内容中没有文字"
 }
