@@ -677,13 +677,25 @@ input, textarea { font: inherit; }
  * cannot shift a single character, held a few pixels clear of the text so it
  * frames rather than crowds.
  */
-#editLayer textarea {
+#editLayer textarea, #editLayer .rt {
   position: absolute; pointer-events: auto; resize: none;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; cursor: text;
   border: 0; padding: 0; margin: 0; background: transparent; color: var(--text);
   overflow: hidden; user-select: text;
   outline: 1px dashed rgba(0,0,0,.45);
   outline-offset: 4px;
 }
+
+/* Bold in the typing box is the same weight the board draws it in, however
+   the browser chose to mark it up - otherwise the words shift on commit. */
+#editLayer .rt b, #editLayer .rt strong,
+#editLayer .rt [style*="font-weight: bold"], #editLayer .rt [style*="font-weight: 700"] { font-weight: 600 !important; }
+
+/* The format bar: the selection bar's other job, while typing */
+#ctxbar .fmt-btn.on { background: var(--accent-soft, rgba(0,120,212,.14)); color: var(--accent-2, #0078d4); }
+#ctxbar .fmt-colours { display: flex; align-items: center; gap: 4px; padding: 0 6px; }
+#ctxbar .fmt-sw { width: 20px; height: 20px; border-radius: 50%; padding: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }
+@media (max-width: 480px) { #ctxbar .fmt-sw { width: 24px; height: 24px; } }
 
 /* ---------------- toast / progress ---------------- */
 #toasts { position: absolute; left: 50%; transform: translateX(-50%); bottom: 78px; z-index: 45; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }

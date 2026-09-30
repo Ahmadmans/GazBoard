@@ -3180,7 +3180,7 @@ class App {
   onKeyDown(e) {
     if (this.textEditor.active) return;
     const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
 
     const mod = e.ctrlKey || e.metaKey;
 

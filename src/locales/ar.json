@@ -932,5 +932,9 @@
  "Downloading… {pct}%": "جارٍ التنزيل… {pct}%",
  "Add a font file…": "إضافة ملف خط…",
  "Windows Ink trail (experimental)": "أثر Windows Ink (تجريبي)",
- "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "يترك لنظام Windows رسم أحدث جزء من خط القلم مباشرة على الشاشة، فيبقى الحبر أقرب إلى رأس القلم — كما يفعل Microsoft Whiteboard. يستخدمه القلم العادي فقط؛ أما قلم التمييز وحبر قوس قزح والمجرة والمسطرة فترسم كما كانت. لا يتغير شيء في لوحاتك."
+ "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "يترك لنظام Windows رسم أحدث جزء من خط القلم مباشرة على الشاشة، فيبقى الحبر أقرب إلى رأس القلم — كما يفعل Microsoft Whiteboard. يستخدمه القلم العادي فقط؛ أما قلم التمييز وحبر قوس قزح والمجرة والمسطرة فترسم كما كانت. لا يتغير شيء في لوحاتك.",
+ "Bold ({key})": "غامق ({key})",
+ "Italic ({key})": "مائل ({key})",
+ "Underline ({key})": "تسطير ({key})",
+ "Automatic colour": "لون تلقائي"
 }

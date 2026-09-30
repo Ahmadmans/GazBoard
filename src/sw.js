@@ -57,6 +57,7 @@ const PRECACHE_ASSETS = [
   './js/core/pages.js',
   './js/core/recognize.js',
   './js/core/render.js',
+  './js/core/richtext.js',
   './js/core/store.js',
   './js/core/surface.js',
   './js/core/tools.js',

@@ -932,5 +932,9 @@
  "Downloading… {pct}%": "正在下载… {pct}%",
  "Add a font file…": "添加字体文件…",
  "Windows Ink trail (experimental)": "Windows Ink 笔迹跟随（实验性）",
- "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "让 Windows 直接把笔画最新的一小段画到屏幕上，使墨迹更紧贴笔尖——Microsoft Whiteboard 就是这样做的。只有普通笔会使用它；荧光笔、彩虹和星河墨水以及直尺照旧绘制。你的白板不会有任何改变。"
+ "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "让 Windows 直接把笔画最新的一小段画到屏幕上，使墨迹更紧贴笔尖——Microsoft Whiteboard 就是这样做的。只有普通笔会使用它；荧光笔、彩虹和星河墨水以及直尺照旧绘制。你的白板不会有任何改变。",
+ "Bold ({key})": "加粗 ({key})",
+ "Italic ({key})": "倾斜 ({key})",
+ "Underline ({key})": "下划线 ({key})",
+ "Automatic colour": "自动颜色"
 }

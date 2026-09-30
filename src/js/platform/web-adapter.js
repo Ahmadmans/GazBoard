@@ -23,7 +23,7 @@ export function createWebAdapter() {
   // Wire keyboard shortcuts for menu commands in browser
   window.addEventListener('keydown', (e) => {
     const isCmdOrCtrl = e.metaKey || e.ctrlKey;
-    if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+    if (e.target && (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable)) return;
 
     if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'n') {
       e.preventDefault();

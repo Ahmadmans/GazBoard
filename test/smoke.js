@@ -7623,7 +7623,7 @@ async function run(win, app) {
     r.hBefore = a.store.get('note-grow').h;
     a.beginTextEdit(a.store.get('note-grow'));
     await new Promise((res) => setTimeout(res, 60));
-    const ta = document.querySelector('#editLayer textarea');
+    const ta = document.querySelector('#editLayer .rt');
     ta.value = Array.from({ length: 14 }, (_, i) => 'line number ' + i).join(String.fromCharCode(10));
     ta.dispatchEvent(new Event('input'));
     await new Promise((res) => setTimeout(res, 40));
@@ -7650,7 +7650,7 @@ async function run(win, app) {
     a.store.add(small, 'small note');
     a.beginTextEdit(a.store.get('note-small'));
     await new Promise((res) => setTimeout(res, 60));
-    const ta2 = document.querySelector('#editLayer textarea');
+    const ta2 = document.querySelector('#editLayer .rt');
     ta2.value = 'hi';
     ta2.dispatchEvent(new Event('input'));
     await new Promise((res) => setTimeout(res, 40));
@@ -12264,6 +12264,211 @@ module.exports.run = async (win, app) => {
       r.touched && r.calls.length >= 1 && r.calls.every((c) => c === 'band'),
       `paints on the eraser's first frames: ${r.calls.join(', ') || 'none'} (a "whole board" first is the hitch: every object redrawn before ` +
       `anything rubs out); the ink under it was erased: ${r.touched}`);
+  }
+
+  /* ---- rich text: the runs themselves ---- */
+  {
+    const r = await js(`const R = await import('app://board/js/core/richtext.js');
+      const { wrapText } = await import('app://board/js/core/util.js');
+      const out = {};
+      out.merged = JSON.stringify(R.normalizeRuns([{ t: 'a' }, { t: 'b', b: 1 }, { t: 'c', b: 1 }, { t: '' }, { t: 'd' }]));
+      out.plainIsNull = R.normalizeRuns([{ t: 'just ' }, { t: 'words' }]) === null;
+      const text = 'Newton second law';
+      const bold = R.applyStyle(null, text, 7, 13, 'b', 1);
+      out.bold = JSON.stringify(bold);
+      out.cleared = R.applyStyle(bold, text, 0, text.length, 'b', null);
+      out.has = R.hasStyle(bold, text, 7, 13, 'b');
+      out.hasNot = R.hasStyle(bold, text, 0, 13, 'b');
+      out.stale = R.validRuns(bold, 'Newton second law, edited elsewhere');
+      const g = document.createElement('canvas').getContext('2d');
+      const base = { family: 'sans-serif', weight: '400', bold: false, italic: false, underline: false, color: '#000', size: 24 };
+      const long = 'the quick brown fox jumps over the lazy dog and keeps running past the edge of the box';
+      g.font = '400 24px sans-serif';
+      const plainLines = wrapText(g, long, 220);
+      const tinted = R.layoutRich(g, [{ t: long, c: '#e81123' }], 220, base);
+      out.plainCount = plainLines.length; out.richCount = tinted.length;
+      out.sameBreaks = JSON.stringify(plainLines) === JSON.stringify(tinted.map((l) => l.segs.map((s) => s.t).join('')));
+      const mixed = R.layoutRich(g, [{ t: 'plain words then ' }, { t: 'bold ones that run on and on', b: 1 }, { t: ' and plain again at the end' }], 200, base);
+      out.widest = Math.max(...mixed.map((l) => l.w));
+      out.letters = mixed.map((l) => l.segs.map((s) => s.t).join('')).join(' ').replace(/\\s+/g, ' ') === 'plain words then bold ones that run on and on and plain again at the end';
+      const giant = R.layoutRich(g, [{ t: 'Supercalifragilistic', b: 1 }, { t: 'expialidocious' }], 120, base);
+      out.giantWidest = Math.max(...giant.map((l) => l.w));
+      out.giantLetters = giant.map((l) => l.segs.map((s) => s.t).join('')).join('') === 'Supercalifragilisticexpialidocious';
+      return out;`);
+    check('rich text: neighbouring runs that look alike merge, and all-plain text stores no runs',
+      r.merged === '[{"t":"a"},{"t":"bc","b":1},{"t":"d"}]' && r.plainIsNull, `merged ${r.merged}; plain gives null: ${r.plainIsNull}`);
+    check('rich text: bolding one word styles exactly that word, and un-bolding everything leaves plain text',
+      r.bold === '[{"t":"Newton "},{"t":"second","b":1},{"t":" law"}]' && r.cleared === null && r.has && !r.hasNot,
+      `bold "second": ${r.bold}; cleared: ${JSON.stringify(r.cleared)}; "second" bold ${r.has}, "Newton second" all bold ${r.hasNot}`);
+    check('rich text: runs that no longer match the text (edited by an older copy) are ignored, so the words show plain',
+      r.stale === null, `stale runs kept: ${JSON.stringify(r.stale)}`);
+    check('rich text: colouring the words does not move a single line break compared with the plain text',
+      r.sameBreaks && r.plainCount === r.richCount, `plain ${r.plainCount} lines, coloured ${r.richCount}; same breaks ${r.sameBreaks}`);
+    check('rich text: mixed bold and plain wraps inside the box and keeps every word',
+      r.widest <= 200.5 && r.letters && r.giantWidest <= 120.5 && r.giantLetters,
+      `widest line ${r.widest.toFixed(1)} of 200; words kept ${r.letters}; a word too long for the box: widest ${r.giantWidest.toFixed(1)} of 120, letters kept ${r.giantLetters}`);
+  }
+
+  /* ---- rich text on the board: every kind of text draws its own styles ---- */
+  {
+    const r = await js(`const a = window.app, sf = a.surface; a.newBoard(true); a.textEditor.cancel(); a.setSelection([]);
+      sf.cam.z = 1; sf.cam.x = 40; sf.cam.y = 40;
+      const red = [{ t: 'AAAA ' }, { t: 'BBBB', c: '#e81123' }];
+      a.store.addMany([
+        { id: 'rt-text', type: 'text', x: 0, y: 0, w: 420, h: 80, text: 'AAAA BBBB', runs: red, fontSize: 60, rotation: 0, font: 'sans' },
+        { id: 'rt-old', type: 'text', x: 0, y: 120, w: 420, h: 80, text: 'AAAA CCCC', runs: red, fontSize: 60, rotation: 0, font: 'sans' },
+        { id: 'rt-note', type: 'note', x: 480, y: 0, w: 260, h: 260, text: 'AA BB', runs: [{ t: 'AA ' }, { t: 'BB', c: '#0078d4' }], fontSize: 60, color: '#ffffff', rotation: 0, align: 'center', font: 'sans' },
+        { id: 'rt-shape', type: 'shape', kind: 'rect', x: 0, y: 240, w: 420, h: 120, text: 'AA BB', runs: [{ t: 'AA ' }, { t: 'BB', c: '#107c10' }], fontSize: 60, stroke: '#201f1e', fill: 'none', lineWidth: 2, rotation: 0 },
+        { id: 'rt-table', type: 'table', x: 480, y: 300, w: 300, h: 100, rows: 1, cols: 1, cells: { '0,0': 'AA BB' }, cellRuns: { '0,0': [{ t: 'AA ' }, { t: 'BB', c: '#8764b8' }] }, fontSize: 40, rotation: 0 }
+      ], 'x');
+      sf.repaintAll?.(); sf.draw();
+      const ctx = sf.canvas.getContext('2d'), dpr = sf.canvas.width / sf.width;
+      const count = (o, hex) => { const b = a.store.get(o); const p = sf.cam.toScreen(b.x, b.y);
+        const d = ctx.getImageData(Math.round(p.x * dpr), Math.round(p.y * dpr), Math.round(b.w * dpr), Math.round(b.h * dpr)).data;
+        const R = parseInt(hex.slice(1, 3), 16), G = parseInt(hex.slice(3, 5), 16), B = parseInt(hex.slice(5, 7), 16); let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - R) < 40 && Math.abs(d[i + 1] - G) < 40 && Math.abs(d[i + 2] - B) < 40) n++;
+        return n; };
+      const out = { text: count('rt-text', '#e81123'), old: count('rt-old', '#e81123'), oldInk: count('rt-old', '#201f1e'),
+        note: count('rt-note', '#0078d4'), shape: count('rt-shape', '#107c10'), table: count('rt-table', '#8764b8') };
+      a.newBoard(true);
+      return out;`);
+    check('coloured words are drawn in their colour in a text box, a note, a shape and a table cell',
+      r.text > 200 && r.note > 100 && r.shape > 100 && r.table > 50,
+      `pixels in the chosen colour: text box ${r.text}, note ${r.note}, shape ${r.shape}, table cell ${r.table} (0 means the style was ignored)`);
+    check('a box whose words were changed by an older copy of GazBoard draws plain, with no leftover colour',
+      r.old < 20 && r.oldInk > 200, `red pixels ${r.old} (want none), ink pixels ${r.oldInk}`);
+  }
+
+  /* ---- rich text while typing: real keys, the shortcuts and the format bar ---- */
+  {
+    const wc = win.webContents;
+    const type = async (str) => { for (const ch of str) { wc.sendInputEvent({ type: 'char', keyCode: ch }); await sleep(12); } await sleep(120); };
+    const key = async (keyCode, modifiers = []) => { wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers }); wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); await sleep(120); };
+    await js(`const a = window.app, sf = a.surface; a.newBoard(true); a.textEditor.cancel(); a.setSelection([]);
+      sf.cam.z = 1; sf.cam.x = sf.width / 2; sf.cam.y = sf.height / 2; a.setTool('select');
+      a.addTextAt({ x: -200, y: -60 }); await new Promise((res) => setTimeout(res, 120)); return true;`);
+    await type('plain bold');
+    await key('Enter');
+    await type('next');
+    await js(`const te = window.app.textEditor; te.el.setSelectionRange(6, 10); return true;`);
+    await key('B', [process.platform === 'darwin' ? 'meta' : 'control']);
+    const typed = await js(`const te = window.app.textEditor; const bar = document.getElementById('ctxbar');
+      return { value: te.el.value, runs: JSON.stringify(te.runs()), barMode: bar.dataset.mode, barShown: bar.classList.contains('show'),
+        buttons: [...bar.querySelectorAll('[data-fmt]')].map((b) => b.dataset.fmt + (b.classList.contains('on') ? '*' : '')).join(','),
+        swatches: bar.querySelectorAll('[data-colour]').length };`);
+    // the format bar, pressed with a real mouse: italic on the same word, then red
+    const btn = async (sel) => { const p = await js(`const b = document.querySelector('#ctxbar ${sel}'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };`);
+      if (!p) return false;
+      wc.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 }); await sleep(30);
+      wc.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: 1 }); await sleep(150); return true; };
+    const pressedI = await btn('[data-fmt="italic"]');
+    const pressedRed = await btn('[data-colour="#e81123"]');
+    const mid = await js(`const te = window.app.textEditor; return { active: te.active, focused: document.activeElement === te.el, runs: JSON.stringify(te.runs()) };`);
+    // with nothing highlighted, what comes next is bold
+    await js(`const te = window.app.textEditor; te.el.setSelectionRange(te.el.value.length); return true;`);
+    await key('U', [process.platform === 'darwin' ? 'meta' : 'control']);
+    await type('!');
+    const done = await js(`const a = window.app, te = a.textEditor; const id = te.target.id; te.commit();
+      const o = a.store.get(id); const out = { text: o.text, runs: JSON.stringify(o.runs), editing: te.active };
+      a.store.undo(); const u = a.store.get(id); out.undone = u ? JSON.stringify({ text: u.text, runs: u.runs }) : 'gone';
+      a.store.redo();
+      a.beginTextEdit(a.store.get(id)); await new Promise((res) => setTimeout(res, 60));
+      const spans = [...te.el.querySelectorAll('span')].map((s) => s.textContent + ':' + getComputedStyle(s).fontWeight + '/' + getComputedStyle(s).fontStyle);
+      out.reopened = spans.join(' | '); out.reopenValue = te.el.value;
+      te.cancel(); out.afterCancel = JSON.stringify(a.store.get(id).runs);
+      a.setTool('select'); a.newBoard(true);
+      return out;`);
+    check('typing into a text box with real keys: Enter starts a new line and Ctrl+B bolds the highlighted word',
+      typed.value === 'plain bold\nnext' && typed.runs === '[{"t":"plain "},{"t":"bold","b":1},{"t":"\\nnext"}]',
+      `text ${JSON.stringify(typed.value)}; runs ${typed.runs}`);
+    check('while typing, the selection bar becomes the format bar: bold, italic, underline and colours, with bold lit up',
+      typed.barMode === 'format' && typed.barShown && typed.buttons === 'bold*,italic,underline' && typed.swatches >= 6,
+      `bar mode "${typed.barMode}", shown ${typed.barShown}, buttons ${typed.buttons}, colour swatches ${typed.swatches}`);
+    check('pressing the format bar with a real mouse styles the word and never ends the typing',
+      pressedI && pressedRed && mid.active && mid.focused && mid.runs === '[{"t":"plain "},{"t":"bold","b":1,"i":1,"c":"#e81123"},{"t":"\\nnext"}]',
+      `found buttons: italic ${pressedI}, red ${pressedRed}; still typing ${mid.active}, focus kept ${mid.focused}; runs ${mid.runs}`);
+    check('with nothing highlighted, Ctrl+U makes the next letters underlined',
+      done.text === 'plain bold\nnext!' && done.runs === '[{"t":"plain "},{"t":"bold","b":1,"i":1,"c":"#e81123"},{"t":"\\nnext"},{"t":"!","u":1}]',
+      `saved text ${JSON.stringify(done.text)}; saved runs ${done.runs}`);
+    check('the styles are one undo with the words, and come back when the box is opened again',
+      done.undone === '{"text":""}',
+      `after undo: ${done.undone}`);
+    check('re-opening shows the bold word bold in the typing box, and cancelling leaves the saved styles alone',
+      /bold:600\/italic/.test(done.reopened) && done.reopenValue === 'plain bold\nnext!' && done.afterCancel === done.runs,
+      `styled stretches in the box: ${done.reopened}; text ${JSON.stringify(done.reopenValue)}; runs after cancel ${done.afterCancel}`);
+  }
+
+  /* ---- rich text in notes, shapes and table cells, and pasting stays plain ---- */
+  {
+    const r = await js(`const a = window.app, te = a.textEditor; a.newBoard(true); te.cancel(); a.setSelection([]);
+      a.store.addMany([
+        { id: 'rn', type: 'note', x: 0, y: 0, w: 220, h: 220, text: 'sticky words', color: '#ffd94a', rotation: 0, align: 'center', font: 'sans' },
+        { id: 'rs', type: 'shape', kind: 'ellipse', x: 300, y: 0, w: 260, h: 160, text: 'shape label', stroke: '#201f1e', fill: 'none', lineWidth: 3, rotation: 0 },
+        { id: 'rtb', type: 'table', x: 0, y: 300, w: 300, h: 120, rows: 2, cols: 2, cells: { '0,0': 'cell text', '1,1': 'other' }, rotation: 0 }
+      ], 'x');
+      const out = {};
+      const style = async (obj, cell, a0, b0, fn) => { if (cell) te.begin(obj, cell); else a.beginTextEdit(obj); await new Promise((res) => setTimeout(res, 50));
+        te.el.setSelectionRange(a0, b0); fn(); te.commit(); };
+      await style(a.store.get('rn'), null, 0, 6, () => te.format('bold'));
+      await style(a.store.get('rs'), null, 6, 11, () => te.colour('#0078d4'));
+      await style(a.store.get('rtb'), '0,0', 5, 9, () => te.format('italic'));
+      out.note = JSON.stringify({ t: a.store.get('rn').text, r: a.store.get('rn').runs });
+      out.shape = JSON.stringify({ t: a.store.get('rs').text, r: a.store.get('rs').runs });
+      const tb = a.store.get('rtb');
+      out.table = JSON.stringify({ c: tb.cells, r: tb.cellRuns });
+      // a paste brings words, never the page they came from
+      a.beginTextEdit(a.store.get('rn')); await new Promise((res) => setTimeout(res, 50));
+      te.el.setSelectionRange(te.el.value.length);
+      const dt = new DataTransfer(); dt.setData('text/plain', ' pasted'); dt.setData('text/html', '<b style="font-size:40px;background:yellow">pasted</b>');
+      te.el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      out.afterPaste = JSON.stringify(te.runs()); out.pasteText = te.el.value;
+      out.markup = te.el.innerHTML.includes('background') || te.el.innerHTML.includes('font-size');
+      te.cancel();
+      a.newBoard(true);
+      return out;`);
+    check('a note, a shape label and a table cell each keep their own styled words, with the text itself unchanged',
+      r.note === '{"t":"sticky words","r":[{"t":"sticky","b":1},{"t":" words"}]}' &&
+      r.shape === '{"t":"shape label","r":[{"t":"shape "},{"t":"label","c":"#0078d4"}]}' &&
+      r.table === '{"c":{"0,0":"cell text","1,1":"other"},"r":{"0,0":[{"t":"cell "},{"t":"text","i":1}]}}',
+      `note ${r.note}; shape ${r.shape}; table ${r.table}`);
+    check('pasting into a box brings the words only, never the fonts or backgrounds',
+      r.pasteText === 'sticky words pasted' && !r.markup && r.afterPaste === '[{"t":"sticky","b":1},{"t":" words pasted"}]',
+      `text ${JSON.stringify(r.pasteText)}; foreign markup in the box ${r.markup}; runs ${r.afterPaste}`);
+  }
+
+  /* ---- rich text survives copy and paste, another board, saving, and being sent ---- */
+  {
+    const r = await js(`const a = window.app; const { exportable } = await import('app://board/js/export.js');
+      a.toast = () => {}; a.newBoard(true); a.textEditor.cancel();
+      const runs = [{ t: 'keep ' }, { t: 'this', b: 1, c: '#e81123' }];
+      const cellRuns = { '0,0': [{ t: 'cell ' }, { t: 'too', i: 1 }] };
+      a.store.addMany([
+        { id: 'cp-text', type: 'text', x: 0, y: 0, w: 300, h: 60, text: 'keep this', runs, fontSize: 32, rotation: 0 },
+        { id: 'cp-tbl', type: 'table', x: 0, y: 100, w: 200, h: 80, rows: 1, cols: 1, cells: { '0,0': 'cell too' }, cellRuns, rotation: 0 }
+      ], 'x');
+      const want = JSON.stringify({ runs, cellRuns });
+      const got = (list) => { const tx = list.find((o) => o.type === 'text'), tb = list.find((o) => o.type === 'table');
+        return JSON.stringify({ runs: tx && tx.runs, cellRuns: tb && tb.cellRuns }); };
+      const out = { want };
+      a.setSelection(['cp-text', 'cp-tbl']); a.copy(); a.paste();
+      out.sameBoard = got(a.selected);
+      out.pastedIsCopy = a.selected.every((o) => o.id !== 'cp-text' && o.id !== 'cp-tbl');
+      // a different board, same clipboard
+      a.newBoard(true); a.paste();
+      out.otherBoard = got(a.selected);
+      // written out the way a save and a send write it, and read back the way they are opened
+      const wire = JSON.parse(JSON.stringify(exportable(a.store.toJSON({ app: 'GazBoard', version: 1 }))));
+      out.onTheWire = got(wire.objects);
+      await a.loadBoard(wire, { silent: true });
+      out.reopened = got(a.store.objects);
+      a.newBoard(true);
+      return out;`);
+    check('formatted words survive copy and paste on the same board and onto another board',
+      r.sameBoard === r.want && r.otherBoard === r.want && r.pastedIsCopy,
+      `wanted ${r.want}; same board ${r.sameBoard}; other board ${r.otherBoard}; pasted items are new copies ${r.pastedIsCopy}`);
+    check('formatted words survive being saved or sent to another computer and opened again',
+      r.onTheWire === r.want && r.reopened === r.want,
+      `wanted ${r.want}; in the saved/sent file ${r.onTheWire}; after opening it ${r.reopened}`);
   }
 
   /* ---- the Windows Ink trail: a head start for the pen, never part of the board ---- */

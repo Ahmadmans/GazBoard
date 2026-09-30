@@ -4,6 +4,7 @@ import { boundsOf, worldBounds } from './store.js';
 import { pageRects as worldPageRects } from './pages.js';
 import { hexToRgba, readableText, wrapText, fitFontSize, clamp } from './util.js';
 import { inkPath, inkRuns, strokeWeight, hasPressureVariation } from './ink.js';
+import { objectRuns, layoutRich, fitRichSize, drawRichLines } from './richtext.js';
 
 import { fontStack } from '../ui/palettes.js';
 import { t } from '../i18n.js';
@@ -466,6 +467,7 @@ export function drawShape(ctx, o, hideText = false) {
   if (o.text && !hideText) {
     const pad = 10;
     drawTextBlock(ctx, o.text, x + pad, y + pad, w - pad * 2, h - pad * 2, {
+      runs: objectRuns(o), paint: (c) => inkPaint(c),
       color: inkPaint(o.textColor), size: o.fontSize || 0, align: 'center', valign: 'middle',
       family: faceOf(o.font), weight: o.bold ? '600' : '400', italic: o.italic
     });
@@ -480,6 +482,18 @@ export function drawTextBlock(ctx, text, x, y, w, h, opt = {}) {
   if (!text) return;
   const family = opt.family || FONT;
   const weight = opt.weight || '400';
+  /*
+   * Words with styles of their own go the rich way (see richtext.js). Plain
+   * text - every board made before rich text, and every box nobody has
+   * formatted - takes exactly the path below that it always has.
+   */
+  if (opt.runs) {
+    const base = { family, weight: '400', bold: weight === '600', italic: !!opt.italic, underline: !!opt.underline, color: opt.color, size: opt.size };
+    if (!base.size) base.size = fitRichSize(ctx, opt.runs, w, h, base, opt.maxSize || 72, opt.minSize || 10);
+    const lines = layoutRich(ctx, opt.runs, w, base);
+    drawRichLines(ctx, lines, x, y, w, h, base, { align: opt.align, valign: opt.valign, lineHeight: opt.lineHeight, paint: opt.paint });
+    return;
+  }
   const italic = opt.italic ? 'italic ' : '';
   let size = opt.size;
   if (!size) size = fitFontSize(ctx, text, w, h, family, weight, opt.maxSize || 72, opt.minSize || 10);
@@ -556,6 +570,7 @@ export function drawNote(ctx, o, hideText = false) {
   const pad = Math.max(10, o.w * 0.08);
   const type = noteTypeRange(o);
   drawTextBlock(ctx, hideText ? '' : o.text, o.x + pad, o.y + pad, o.w - pad * 2, o.h - pad * 2, {
+    runs: objectRuns(o),
     color: o.textColor || readableText(o.color || '#ffd94a'),
     size: o.fontSize || 0, maxSize: type.max, minSize: type.min,
     align: o.align || 'center', valign: 'middle',
@@ -575,6 +590,7 @@ export function drawText(ctx, o, hideText = false) {
     ctx.restore();
   }
   drawTextBlock(ctx, hideText ? '' : o.text, o.x, o.y, o.w, o.h, {
+    runs: objectRuns(o), paint: (c) => inkPaint(c),
     color: inkPaint(o.color), size: o.fontSize || 24,
     align: o.align || 'left', valign: o.valign || 'top',
     family: faceOf(o.font),
@@ -772,6 +788,7 @@ export function drawTable(ctx, o, hideCell = null) {
     const t = cells[key];
     if (!t || key === hideCell) continue;
     drawTextBlock(ctx, t, o.x + c * cw + 6, o.y + r * ch + 6, cw - 12, ch - 12, {
+      runs: objectRuns(o, key),
       color: o.textColor || '#201f1e', size: o.fontSize || 0, maxSize: 26,
       align: 'center', valign: 'middle', family: FONT, weight: o.headerRow && r === 0 ? '600' : '400'
     });

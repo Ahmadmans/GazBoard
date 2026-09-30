@@ -932,5 +932,9 @@
  "Downloading… {pct}%": "Descargando… {pct}%",
  "Add a font file…": "Agregar un archivo de fuente…",
  "Windows Ink trail (experimental)": "Trazo de Windows Ink (experimental)",
- "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "Deja que Windows dibuje directamente en la pantalla el tramo más reciente de cada trazo del bolígrafo, para que la tinta vaya más pegada a la punta, como hace Microsoft Whiteboard. Solo lo usa el bolígrafo normal; el resaltador, las tintas arcoíris y galaxia y la regla dibujan como antes. Tus pizarras no cambian en nada."
+ "Lets Windows paint the newest bit of a pen stroke straight to the screen, so the ink stays closer to the nib — the way Microsoft Whiteboard does it. Only the plain pen uses it; the highlighter, rainbow and galaxy inks and the ruler draw as before. Nothing about your boards changes.": "Deja que Windows dibuje directamente en la pantalla el tramo más reciente de cada trazo del bolígrafo, para que la tinta vaya más pegada a la punta, como hace Microsoft Whiteboard. Solo lo usa el bolígrafo normal; el resaltador, las tintas arcoíris y galaxia y la regla dibujan como antes. Tus pizarras no cambian en nada.",
+ "Bold ({key})": "Negrita ({key})",
+ "Italic ({key})": "Cursiva ({key})",
+ "Underline ({key})": "Subrayado ({key})",
+ "Automatic colour": "Color automático"
 }

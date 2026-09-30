@@ -97,8 +97,10 @@ export function showContextMenu(app, e, fromSelectionBar = false) {
  * ------------------------------------------------------------------ */
 export function updateSelectionBar(app) {
   const bar = document.getElementById('ctxbar');
+  if (app.textEditor.active) { formatBar(app, bar); return; }
+  if (bar.dataset.mode === 'format') { bar.dataset.mode = ''; bar.onmousedown = null; bar.innerHTML = ''; }
   const sel = [...app.surface.selection].map((id) => app.store.get(id)).filter(Boolean);
-  if (!sel.length || app.textEditor.active) { bar.classList.remove('show'); return; }
+  if (!sel.length) { bar.classList.remove('show'); return; }
 
   const box = app.surface.selectionScreenBox(10);
   if (!box) { bar.classList.remove('show'); return; }
@@ -266,4 +268,62 @@ function openColorPopover(app, anchor, type, sel) {
     body.appendChild(fills);
   }
   openPopover(anchor, body, { key: 'selcolor' });
+}
+
+/* ------------------------------------------------------------------ *
+ *  The same bar, while typing: bold, italic, underline and colour
+ *
+ *  One bar in one place. When a box is selected it does what it always did;
+ *  the moment you are typing into it, it turns into the format bar, so a
+ *  second bar never pops up over the words. Whatever is highlighted gets the
+ *  style; with nothing highlighted, it is what the next letters come out as.
+ *
+ *  Nothing in it may take the focus: the box commits the moment it loses it.
+ *  So every press is swallowed at mousedown and the work is done on click.
+ * ------------------------------------------------------------------ */
+function formatBar(app, bar) {
+  const te = app.textEditor;
+  const el = te.el;
+  if (!el) { bar.classList.remove('show'); return; }
+  if (bar.dataset.mode !== 'format' || bar._for !== el) {
+    bar.dataset.mode = 'format';
+    bar._for = el;
+    bar.innerHTML = '';
+    bar.onmousedown = (e) => e.preventDefault();
+    if (!bar._fmtHooked) {
+      bar._fmtHooked = true;
+      bar.addEventListener('pointerdown', (e) => { if (bar.dataset.mode === 'format') e.preventDefault(); });
+    }
+    const mk = (kind, title, label, css) => {
+      const b = h('button', { title, class: 'fmt-btn', 'data-fmt': kind });
+      b.appendChild(h('span', { style: css }, label));
+      b.addEventListener('click', () => { te.format(kind); syncFormat(app, bar); });
+      return b;
+    };
+    const mod = /Mac|iPhone|iPad/.test(navigator.platform || '') ? 'Cmd' : 'Ctrl';
+    bar.appendChild(mk('bold', t('Bold ({key})', { key: mod + '+B' }), 'B', 'font-weight:700;font-size:15px'));
+    bar.appendChild(mk('italic', t('Italic ({key})', { key: mod + '+I' }), 'I', 'font-style:italic;font-family:Georgia,serif;font-size:16px'));
+    bar.appendChild(mk('underline', t('Underline ({key})', { key: mod + '+U' }), 'U', 'text-decoration:underline;font-size:15px'));
+    bar.appendChild(h('span', { class: 'bar-sep' }));
+    const colours = h('span', { class: 'fmt-colours' });
+    const auto = h('button', { class: 'sw fmt-sw', title: t('Automatic colour'), 'data-colour': '' });
+    auto.style.background = 'linear-gradient(135deg, var(--text) 50%, var(--surface) 50%)';
+    auto.addEventListener('click', () => { te.colour(null); syncFormat(app, bar); });
+    colours.appendChild(auto);
+    for (const c of TEXT_COLORS.slice(1)) {
+      const b = h('button', { class: 'sw fmt-sw', title: c, 'data-colour': c });
+      b.style.background = c;
+      b.addEventListener('click', () => { te.colour(c); syncFormat(app, bar); });
+      colours.appendChild(b);
+    }
+    bar.appendChild(colours);
+  }
+  syncFormat(app, bar);
+  const stage = document.getElementById('stage').getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  placeBar(bar, { x: r.left - stage.left, y: r.top - stage.top + 36, w: r.width, h: r.height });
+}
+
+function syncFormat(app, bar) {
+  for (const b of bar.querySelectorAll('[data-fmt]')) b.classList.toggle('on', app.textEditor.state(b.dataset.fmt));
 }
