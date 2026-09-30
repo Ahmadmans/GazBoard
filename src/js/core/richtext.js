@@ -343,24 +343,36 @@ export function runsToHtml(runs, text, base = {}) {
   return out;
 }
 
+/** The board's own ink: black on a light board, light on a dark one. */
+export const AUTO_INK = '#201f1e';
+
 /*
- * The colours not worth keeping from somebody else's page. Text copied from a
- * document is nearly always explicitly black (or "windowtext"); keeping that
- * would pin it black on a dark board, where the board's own ink turns light.
- * White or near-white text - copied from a dark web page - would vanish on a
- * white board. Everything in between is a colour somebody chose.
+ * What a colour from somebody else's page becomes on the board.
+ *
+ * Black (or near-black grey, or Word's "automatic") becomes the board's own
+ * ink - it stays black here, where it was black there, and still turns light
+ * on a dark board instead of vanishing. It used to be dropped altogether,
+ * which left those words in whatever colour GazBoard's text happened to be
+ * set to last: black words from Word arrived red. White or near-white grey -
+ * copied from a dark web page - is dropped, or it would vanish on a white
+ * board. Every real colour is kept exactly, however dark: a navy heading is
+ * navy, not black.
  */
 function keepColour(hex) {
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
   if (!m) return null;
-  const [r, g, b] = [m[1], m[2], m[3]].map((v) => parseInt(v, 16) / 255);
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return lum < 0.12 || lum > 0.9 ? null : hex.toLowerCase();
+  const [r, g, b] = [m[1], m[2], m[3]].map((v) => parseInt(v, 16));
+  const hi = Math.max(r, g, b), lo = Math.min(r, g, b);
+  const grey = hi - lo < 30;
+  if (grey && hi < 80) return AUTO_INK;
+  if (grey && lo > 225) return null;
+  return hex.toLowerCase();
 }
 
 let colourCtx = null;
 function toHexColour(v) {
-  if (!v || /inherit|initial|currentcolor|windowtext|auto/i.test(v)) return null;
+  if (!v || /inherit|initial|currentcolor/i.test(v)) return null;
+  if (/windowtext|^\s*auto\s*$/i.test(v)) return '#000000';       // Word's "automatic" is black
   try {
     colourCtx = colourCtx || document.createElement('canvas').getContext('2d');
     colourCtx.fillStyle = '#000001';

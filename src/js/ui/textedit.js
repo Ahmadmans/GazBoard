@@ -109,8 +109,11 @@ function looksOf(el, root) {
  * matter how the browser chose to mark the words up - <b>, a styled span, a
  * <font> tag - only how they actually look.
  */
-function runsOf(root) {
+function runsOf(root, paint = (c) => c) {
   const base = looksOf(root, root);
+  // The board's own ink is shown through the theme; read it back as itself.
+  const shown = String(paint('#201f1e'));
+  const autoShown = (/^#[0-9a-f]{6}$/i.test(shown) ? shown.toLowerCase() : toHex(shown)) || '#201f1e';
   const runs = [];
   for (const it of flatten(root)) {
     if (it.kind !== 'text') { runs.push({ t: '\n' }); continue; }
@@ -119,14 +122,14 @@ function runsOf(root) {
     if (l.bold !== base.bold) r.b = l.bold ? 1 : 0;
     if (l.italic !== base.italic) r.i = l.italic ? 1 : 0;
     if (l.under !== base.under) r.u = l.under ? 1 : 0;
-    if (l.color && l.color !== base.color) r.c = l.color;
+    if (l.color && l.color !== base.color) r.c = l.color === autoShown ? '#201f1e' : l.color;
     runs.push(r);
   }
   return normalizeRuns(runs);
 }
 
 /** Fill the box with runs (or plain text), the way it will be drawn. */
-function fill(root, runs, text) {
+function fill(root, runs, text, paint = (c) => c) {
   root.textContent = '';
   const list = runs || [{ t: String(text ?? '') }];
   for (const r of list) {
@@ -136,7 +139,7 @@ function fill(root, runs, text) {
       if (r.b !== undefined) into.style.fontWeight = r.b ? '600' : '400';
       if (r.i !== undefined) into.style.fontStyle = r.i ? 'italic' : 'normal';
       if (r.u !== undefined) into.style.textDecorationLine = r.u ? 'underline' : 'none';
-      if (r.c) into.style.color = r.c;
+      if (r.c) into.style.color = paint(r.c);
       root.appendChild(into);
     }
     String(r.t).split('\n').forEach((piece, i) => {
@@ -225,7 +228,8 @@ export class TextEditor {
     ta.setAttribute('data-gramm_editor', 'false');
     ta.setAttribute('data-enable-grammarly', 'false');
     textareaFace(ta);
-    fill(ta, objectRuns(obj, cell), cell ? (obj.cells?.[cell] || '') : (obj.text || ''));
+    this.paint = !cell && (obj.type === 'text' || obj.type === 'shape') ? (c) => inkPaint(c) : (c) => c;
+    fill(ta, objectRuns(obj, cell), cell ? (obj.cells?.[cell] || '') : (obj.text || ''), this.paint);
     this.el = ta;
     this.layer.appendChild(ta);
     // On touch/mobile viewports, keep active edit target in comfortable visible area above software keyboard
@@ -277,7 +281,7 @@ export class TextEditor {
       const range = s.getRangeAt(0);
       range.deleteContents();
       const holder = document.createElement('div');
-      fill(holder, runs);
+      fill(holder, runs, null, this.paint);
       const nodes = [...holder.childNodes];
       if (!nodes.length) return true;
       const frag = document.createDocumentFragment();
@@ -479,7 +483,7 @@ export class TextEditor {
   /** What is in the box right now, as runs - or null when it is all plain. */
   runs() {
     if (!this.el || !this.el.isConnected) return null;
-    return runsOf(this.el);
+    return runsOf(this.el, this.paint);
   }
 
   /** The box's own style, as the rich layout wants it. */

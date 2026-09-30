@@ -13,7 +13,7 @@ import { uid, debounce, clamp, unionBox } from './core/util.js';
 import { pageRects, stripBounds, pageIndexForBox, nearestPageIndex, offsetIntoRect, PAGE_GAP } from './core/pages.js';
 import { isNewer } from './core/version.js';
 import { emojiAspect, forgetEmojiMetrics, setDarkBoard } from './core/render.js';
-import { objectRuns, runsToHtml, htmlToRuns } from './core/richtext.js';
+import { objectRuns, runsToHtml, htmlToRuns, normalizeRuns, AUTO_INK } from './core/richtext.js';
 import { TextEditor } from './ui/textedit.js';
 import { initToolbar, syncToolbar } from './ui/toolbar.js';
 import { initPresentBar, syncPresentBar } from './ui/present.js';
@@ -1737,7 +1737,14 @@ class App {
     let runs = null;
     if (html) {
       const got = htmlToRuns(html);
-      if (got.runs && got.text.trim()) { runs = got.runs; text = got.text; }
+      if (got.text.trim()) {
+        text = got.text;
+        // The box itself takes the board's own ink, so words that were plain
+        // black where they came from stay black here - not whatever colour
+        // GazBoard's text was last set to - and only real colours ride on runs.
+        runs = normalizeRuns((got.runs || []).map((r) => (r.c === AUTO_INK ? { ...r, c: undefined } : r)));
+        if (!runs) runs = [];
+      }
     }
     const o = {
       id: uid('t'), type: 'text', x: at.x - this.worldSize(210), y: at.y - this.worldSize(30),
@@ -1749,7 +1756,11 @@ class App {
     };
     // The runs describe the text exactly as it is stored, so it is not trimmed
     // out from under them (htmlToRuns has already dropped the loose ends).
-    if (runs) { o.text = text; o.runs = runs; }
+    if (runs) {
+      o.text = text;
+      o.color = AUTO_INK;
+      if (runs.length) o.runs = runs;
+    }
     this.store.add(o, 'paste text');
     this.setSelection([o.id]);
     return o;

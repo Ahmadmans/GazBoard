@@ -12479,8 +12479,8 @@ module.exports.run = async (win, app) => {
       const web = R.htmlToRuns('<div style="color:#ffffff">white on dark</div><div><strong>strong</strong> <em>emph</em> <a href="x">link</a><img src="x"></div>');
       const round = R.htmlToRuns(R.runsToHtml([{ t: 'a ' }, { t: 'b', b: 1 }, { t: ' ' }, { t: 'c', i: 1, c: '#0078d4' }, { t: '\\nd', u: 1 }], 'a b c\\nd', {}));
       return { text: got.text, runs: JSON.stringify(got.runs), webText: web.text, webRuns: JSON.stringify(web.runs), round: JSON.stringify(round) };`);
-    check('pasting from Word keeps bold, italic, underline and colour, drops fonts, sizes, highlights and plain black',
-      r.text === 'Plain bold and red\nsecond line' && r.runs === '[{"t":"Plain "},{"t":"bold","b":1},{"t":" and "},{"t":"red","c":"#c00000"},{"t":"\\n"},{"t":"second","i":1},{"t":" "},{"t":"line","u":1}]',
+    check('pasting from Word keeps bold, italic, underline and colour, turns its black into the board\'s own ink, and drops fonts, sizes and highlights',
+      r.text === 'Plain bold and red\nsecond line' && r.runs === '[{"t":"Plain ","c":"#201f1e"},{"t":"bold","b":1,"c":"#201f1e"},{"t":" and ","c":"#201f1e"},{"t":"red","c":"#c00000"},{"t":"\\n"},{"t":"second","i":1},{"t":" "},{"t":"line","u":1}]',
       `text ${JSON.stringify(r.text)}; runs ${r.runs}`);
     check('pasting from a web page keeps strong and em, drops white text colour, links and pictures',
       r.webText === 'white on dark\nstrong emph link' && r.webRuns === '[{"t":"white on dark\\n"},{"t":"strong","b":1},{"t":" "},{"t":"emph","i":1},{"t":" link"}]',
@@ -12579,6 +12579,38 @@ module.exports.run = async (win, app) => {
       `Paste menu: ${JSON.stringify(r.menuText)} ${r.menuRuns} (hook ${r.hook}, written ${r.put}); Ctrl+V: ${JSON.stringify(r.keyText)} ${r.keyRuns}`);
     check('plain words pasted onto the board still make a plain text box, exactly as before',
       r.plainText === 'just words' && r.plainRuns === 'undefined', `text ${JSON.stringify(r.plainText)}; runs ${r.plainRuns}`);
+  }
+
+  /* ---- pasted colours: black stays black, dark colours stay themselves ---- */
+  {
+    const r = await js(`const a = window.app, te = a.textEditor; a.toast = () => {}; const R = await import('app://board/js/core/richtext.js');
+      const out = {};
+      out.navy = JSON.stringify(R.htmlToRuns('<span style="color:#1F3864">navy heading</span> <span style="color:#7F6000">dark gold</span>').runs);
+      const wasColour = a.settings.textColor, wasTheme = a.settings.theme;
+      a.settings.textColor = '#e81123';                       // the last colour chosen in GazBoard: red
+      a.newBoard(true); a.setSelection([]); a.clipboard = [];
+      const dt = new DataTransfer(); dt.setData('text/plain', 'black words and blue'); dt.setData('text/html', '<p><span style="color:windowtext">black words and </span><span style="color:#0070C0">blue</span></p>');
+      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      await new Promise((res) => setTimeout(res, 80));
+      const o = a.store.objects.find((q) => q.type === 'text');
+      out.box = JSON.stringify({ color: o && o.color, runs: o && o.runs });
+      // on a dark board, opening and closing that box must not pin its ink light
+      a.settings.theme = 'dark'; a.applyTheme();
+      a.store.update(o.id, { runs: [{ t: 'black words and ', c: '#201f1e' }, { t: 'blue', c: '#0070c0' }], color: '#e81123' }, 'x');
+      a.beginTextEdit(a.store.get(o.id)); await new Promise((res) => setTimeout(res, 60));
+      out.shownInk = getComputedStyle(te.el.querySelector('span')).color;
+      out.readBack = JSON.stringify(te.runs());
+      te.cancel();
+      a.settings.theme = wasTheme === undefined ? 'system' : wasTheme; a.applyTheme(); a.settings.textColor = wasColour;
+      a.newBoard(true);
+      return out;`);
+    check('dark colours pasted from Word stay themselves - navy is navy, not black',
+      r.navy === '[{"t":"navy heading","c":"#1f3864"},{"t":" "},{"t":"dark gold","c":"#7f6000"}]', `runs ${r.navy}`);
+    check('words that were black where they came from stay black on the board, not the last colour chosen in GazBoard',
+      r.box === '{"color":"#201f1e","runs":[{"t":"black words and "},{"t":"blue","c":"#0070c0"}]}', `pasted box ${r.box} (red here is the bug)`);
+    check('black inside a coloured box shows as the board own ink on a dark board and reads back unchanged',
+      r.shownInk === 'rgb(243, 242, 241)' && r.readBack === '[{"t":"black words and ","c":"#201f1e"},{"t":"blue","c":"#0070c0"}]',
+      `shown in ${r.shownInk} (wanted the dark board's light ink); read back ${r.readBack}`);
   }
 
   /* ---- rich text leaving the board: Copy text, Copy as picture, SVG ---- */
