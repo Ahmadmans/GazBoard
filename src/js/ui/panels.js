@@ -9,6 +9,7 @@ import { PAPER, paperForPage } from './pdfdialog.js';
 import { exportBoards } from '../board-export.js';
 import { BOARD_COLORS, PATTERNS } from './palettes.js';
 import { inkTrailSupported } from '../core/inktrail.js';
+import * as F from '../core/folders.js';
 
 /**
  * How a paired computer that is NOT currently visible should be shown.
@@ -1267,25 +1268,90 @@ export function createPanels(app) {
   }
 
   /* ---------------- boards ---------------- */
-  async function boards() {
-    open('boards', t('My boards'), () => h('div', { id: 'boardList' }, h('p', { style: 'color:var(--text-2)' }, t('Loading…'))));
-    const list = await window.board.boards.list();
-    if (!list.some((b) => b.id === app.store.doc.id)) list.unshift({
+  /*
+   * My boards, with folders.
+   *
+   * A filing cabinet: folders inside folders, a path across the top that says
+   * where you are and takes you back up, and boards that can be moved with
+   * "Move to…" or simply picked up and dropped on a folder - held for a moment
+   * on a touch screen, dragged straight away with a mouse. The folders are a
+   * catalogue kept in this device's settings (see core/folders.js); the boards
+   * themselves are never touched by any of it.
+   */
+  async function boards(opts = {}) {
+    // Re-drawing in place (after a move, a new folder, a step into a folder)
+    // must not go through open(), which treats a second open as "close".
+    if (!(opts && opts.stay && currentKey === 'boards' && document.getElementById('boardList'))) {
+      open('boards', t('My boards'), () => h('div', { id: 'boardList' }, h('p', { style: 'color:var(--text-2)' }, t('Loading…'))));
+    }
+    const all = await window.board.boards.list();
+    if (!all.some((b) => b.id === app.store.doc.id)) all.unshift({
       id: app.store.doc.id, name: app.store.doc.name, objects: app.store.count, modified: app.store.doc.modified
     });
     const host = document.getElementById('boardList');
     if (!host) return;
+    if (F.pruneBoards(app.settings, all)) app.saveSettings();
+    const here = app.boardFolder && F.folderPath(app.settings, app.boardFolder).length ? app.boardFolder : null;
+    app.boardFolder = here;
+    const list = F.boardsIn(app.settings, all, here);
+    const go = (id) => { app.boardFolder = id || null; boards({ stay: true }); };
+    const keep = () => { try { localStorage.setItem('gazboard.settings', JSON.stringify(app.settings)); } catch { /* storage refused */ } app.syncBoardPath?.(); };
+
     host.innerHTML = '';
-    host.appendChild(h('button', { class: 'btn primary', style: 'width:100%;margin-bottom:8px', onclick: () => { app.command('board.new'); close(); } }, t('+ New board')));
-    // Opening a .gazboard file had a keyboard shortcut and nothing to click,
-    // which is no use to anyone who does not already know it is there.
-    host.appendChild(h('button', { class: 'btn', style: 'width:100%;margin-bottom:14px', onclick: () => { app.command('board.open'); close(); } }, t('Open a board file…')));
+    host.appendChild(h('button', { class: 'btn primary', style: 'width:100%;margin-bottom:8px', onclick: () => {
+      app.command('board.new');
+      // A new board is filed in the folder you are looking at.
+      if (here) { F.moveBoard(app.settings, app.store.doc.id, here); keep(); }
+      close();
+    } }, t('+ New board')));
+    host.appendChild(h('div', { style: 'display:flex;gap:8px;margin-bottom:14px' },
+      h('button', { class: 'btn', style: 'flex:1', 'data-new-folder': '1', onclick: async () => {
+        const name = await app.askText(t('New folder'), here
+          ? t('Made inside “{name}”.', { name: F.folderPath(app.settings, here).pop().name })
+          : t('A folder for a subject, a course or a term. Folders can hold folders.'),
+        { value: '', placeholder: t('CSE221, Lectures, Spring 2026…'), ok: t('Create') });
+        if (name === null || !String(name).trim()) return;
+        F.createFolder(app.settings, name, here); keep(); boards({ stay: true });
+      } }, t('+ New folder')),
+      // Opening a .gazboard file had a keyboard shortcut and nothing to click,
+      // which is no use to anyone who does not already know it is there.
+      h('button', { class: 'btn', style: 'flex:1', onclick: () => { app.command('board.open'); close(); } }, t('Open a board file…'))));
+
+    // The path: where you are, and every step back up. Each step is also a
+    // place to drop a board or a folder.
+    const crumbs = h('nav', { class: 'crumbs', 'aria-label': t('Folder path') });
+    const steps = [{ id: null, name: t('My boards') }, ...F.folderPath(app.settings, here)];
+    steps.forEach((st, i) => {
+      if (i) crumbs.appendChild(h('span', { class: 'crumb-sep', 'aria-hidden': 'true' }, '›'));
+      const last = i === steps.length - 1;
+      const c = h('button', { class: 'crumb' + (last ? ' here' : ''), 'data-drop-folder': st.id || '', title: st.name }, st.name);
+      if (!last) c.addEventListener('click', () => go(st.id));
+      crumbs.appendChild(c);
+    });
+    host.appendChild(crumbs);
+
     const chosen = new Set();
     const boxes = [];
+    /*
+     * A ticked board moves with all the other ticked ones. Moving a board that
+     * is not ticked moves just that one, so a stray tick somewhere else never
+     * drags half the list along with it.
+     */
+    const movingWith = (id) => (chosen.has(id) ? [...chosen] : [id]);
+    const moveBoards = (ids, to) => {
+      for (const id of ids) F.moveBoard(app.settings, id, to);
+      keep();
+      const where = to ? F.folderPath(app.settings, to).pop().name : t('My boards');
+      app.toast(ids.length > 1 ? t('Moved {n} boards to {name}', { n: ids.length, name: where }) : t('Moved to {name}', { name: where }), 'check');
+      boards({ stay: true });
+    };
     const exportButton = h('button', { class: 'btn primary', disabled: true }, t('Export selected (0)'));
+    const moveSelected = h('button', { class: 'btn', disabled: true, 'data-move-selected': '1' }, t('Move selected (0)…'));
     const selectAll = h('input', { type: 'checkbox', 'aria-label': t('Select all boards') });
     const syncChosen = () => {
       exportButton.disabled = !chosen.size;
+      moveSelected.disabled = !chosen.size;
+      moveSelected.textContent = t('Move selected ({n})…', { n: chosen.size });
       exportButton.textContent = chosen.size > 1
         ? t('Export selected ({n}) as ZIP…', { n: chosen.size })
         : t('Export selected ({n})…', { n: chosen.size });
@@ -1311,11 +1377,62 @@ export function createPanels(app) {
         syncChosen();
       }
     });
-    host.appendChild(h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px' },
-      h('label', { style: 'display:flex;align-items:center;gap:8px;min-height:44px' }, selectAll, t('Select all')), exportButton));
+
+    /* -- folders here -- */
+    const folders = F.childFolders(app.settings, here);
+    for (const f of folders) {
+      const n = F.folderCounts(app.settings, all, f.id);
+      const what = [
+        n.boards === 1 ? t('1 board') : t('{n} boards', { n: n.boards }),
+        n.folders ? (n.folders === 1 ? t('1 folder') : t('{n} folders', { n: n.folders })) : null
+      ].filter(Boolean).join(' · ');
+      const row = h('button', { class: 'board-row folder-row', style: 'flex:1;min-width:0', 'data-folder': f.id, 'data-drop-folder': f.id },
+        h('span', { html: icon('folder', 20), style: 'color:var(--accent-2);display:flex' }),
+        h('span', { class: 'meta' }, h('b', {}, f.name), h('small', {}, what)),
+        h('span', { class: 'icon-btn', title: t('Rename'), html: icon('text', 16), onclick: async (e) => {
+          e.stopPropagation();
+          const name = await app.askText(t('Rename folder'), '', { value: f.name, placeholder: f.name, ok: t('Save') });
+          if (name === null || !String(name).trim()) return;
+          F.renameFolder(app.settings, f.id, name); keep(); boards({ stay: true });
+        } }),
+        h('span', { class: 'icon-btn', title: t('Move to…'), html: icon('folderMove', 16), 'data-move': f.id, onclick: async (e) => {
+          e.stopPropagation();
+          const to = await chooseFolder(t('Move “{name}” to…', { name: f.name }), { moving: f.id, from: here });
+          if (to === undefined) return;
+          if (!F.moveFolder(app.settings, f.id, to)) { app.toast(t('A folder cannot go inside itself'), 'help'); return; }
+          keep(); boards({ stay: true });
+        } }),
+        h('span', { class: 'icon-btn', title: t('Delete folder'), html: icon('trash', 16), onclick: async (e) => {
+          e.stopPropagation();
+          const inside = n.boards || n.folders;
+          const ok = await app.confirm(t('Delete folder?'), inside
+            ? t('“{name}” goes, but nothing in it is deleted: its boards and folders move up a level.', { name: f.name })
+            : t('“{name}” is empty and will be removed.', { name: f.name }), t('Delete folder'));
+          if (!ok) return;
+          F.deleteFolder(app.settings, f.id); keep(); boards({ stay: true });
+        } })
+      );
+      row.addEventListener('click', () => { if (!row._dragged) go(f.id); });
+      pickUp(row, { kind: 'folder', id: f.id, name: f.name });
+      host.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px' },
+        h('span', { style: 'display:block;min-width:40px' }), row));
+    }
+
+    host.appendChild(h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0' },
+      h('label', { style: 'display:flex;align-items:center;gap:8px;min-height:44px' }, selectAll, t('Select all')), exportButton, moveSelected));
+    moveSelected.addEventListener('click', async () => {
+      const ids = [...chosen];
+      if (!ids.length) return;
+      const to = await chooseFolder(t('Move {n} boards to…', { n: ids.length }), { from: here });
+      if (to === undefined) return;
+      moveBoards(ids, to);
+    });
     host.appendChild(h('p', { style: 'font-size:12px;color:var(--text-2)' },
       t('Choose boards to export. One saves as a .gazboard file; several save together in a ZIP. Extract the ZIP to open its boards.')));
-    if (!list.length) host.appendChild(h('p', { style: 'color:var(--text-2);font-size:13px' }, t('No saved boards yet.')));
+    if (!list.length && !folders.length) host.appendChild(h('p', { style: 'color:var(--text-2);font-size:13px' },
+      here ? t('This folder is empty. Make a new board here, or move boards in with “Move to…” or by dragging them onto it.') : t('No saved boards yet.')));
+    if (all.length > 1 && !F.folderList(app.settings).length) host.appendChild(h('p', { style: 'font-size:12px;color:var(--text-2)' },
+      t('Tip: + New folder files boards by subject. Hold a board and drag it onto a folder, or use its “Move to…” button.')));
 
     // Every board this app has ever saved is a plain file in one folder. Showing
     // people where, and letting them open it, is worth more than any reassurance
@@ -1324,9 +1441,9 @@ export function createPanels(app) {
       if (!document.getElementById('boardList')) return;
       if (i.electron) {
         const foot = h('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke);font-size:12px;color:var(--text-2);line-height:1.6' },
-          h('div', {}, list.length === 1
-            ? t('{n} board, saved on this computer at:', { n: list.length })
-            : t('{n} boards, saved on this computer at:', { n: list.length })),
+          h('div', {}, all.length === 1
+            ? t('{n} board, saved on this computer at:', { n: all.length })
+            : t('{n} boards, saved on this computer at:', { n: all.length })),
           h('code', { style: 'font-size:11px;display:block;margin:4px 0 8px;word-break:break-all' }, i.userData + '/boards'),
           h('button', { class: 'btn', style: 'width:100%', onclick: () => {
             if (window.board.openBoardsFolder) window.board.openBoardsFolder();
@@ -1335,9 +1452,9 @@ export function createPanels(app) {
         host.appendChild(foot);
       } else if (i.isAndroid) {
         const foot = h('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke);font-size:12px;color:var(--text-2);line-height:1.6' },
-          h('div', {}, list.length === 1
-            ? t('{n} board, saved in GazBoard’s private storage on this Android device.', { n: list.length })
-            : t('{n} boards, saved in GazBoard’s private storage on this Android device.', { n: list.length })),
+          h('div', {}, all.length === 1
+            ? t('{n} board, saved in GazBoard’s private storage on this Android device.', { n: all.length })
+            : t('{n} boards, saved in GazBoard’s private storage on this Android device.', { n: all.length })),
           h('p', {}, t('Boards and images save automatically and reopen here. Android’s Files app cannot browse this private folder.')),
           h('p', {}, t('Select boards above to export them with their images. Choose Downloads, Documents or another location in the Android file picker.')),
           h('p', {}, t('Uninstalling GazBoard or clearing its app storage deletes these local boards. Export copies you want to keep; exports are separate from autosave.')),
@@ -1345,13 +1462,15 @@ export function createPanels(app) {
         host.appendChild(foot);
       } else {
         const foot = h('div', { style: 'margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke);font-size:12px;color:var(--text-2);line-height:1.6' },
-          h('div', {}, list.length === 1
-            ? t('{n} board, stored in browser persistence:', { n: list.length })
-            : t('{n} boards, stored in browser persistence:', { n: list.length })),
+          h('div', {}, all.length === 1
+            ? t('{n} board, stored in browser persistence:', { n: all.length })
+            : t('{n} boards, stored in browser persistence:', { n: all.length })),
           h('code', { style: 'font-size:11px;display:block;margin:4px 0 8px;word-break:break-all' }, i.userData));
         host.appendChild(foot);
       }
     });
+
+    /* -- boards here -- */
     for (const b of list) {
       const input = h('input', { type: 'checkbox', 'aria-label': t('Export {name}', { name: b.name || t('Untitled board') }) });
       boxes.push({ input, id: b.id });
@@ -1359,21 +1478,159 @@ export function createPanels(app) {
         if (input.checked) chosen.add(b.id); else chosen.delete(b.id);
         syncChosen();
       });
-      const row = h('button', { class: 'board-row', style: 'flex:1;min-width:0' },
+      const row = h('button', { class: 'board-row', style: 'flex:1;min-width:0', 'data-board': b.id },
         h('span', { html: icon('board', 20), style: 'color:var(--text-2);display:flex' }),
         h('span', { class: 'meta' },
           h('b', {}, b.name || t('Untitled board')),
           h('small', {}, b.objects === 1
             ? t('{n} item · {date}', { n: b.objects, date: new Date(b.modified).toLocaleString() })
             : t('{n} items · {date}', { n: b.objects, date: new Date(b.modified).toLocaleString() }))),
-        h('span', { class: 'icon-btn', title: t('Delete'), html: icon('trash', 16), onclick: async (e) => { e.stopPropagation(); if (await app.confirm(t('Delete board?'), t('"{name}" will be permanently removed.', { name: b.name }), t('Delete'))) { await app.deleteBoard(b.id); boards(); } } })
+        h('span', { class: 'icon-btn', title: t('Move to…'), html: icon('folderMove', 16), 'data-move': b.id, onclick: async (e) => {
+          e.stopPropagation();
+          const ids = movingWith(b.id);
+          const to = await chooseFolder(ids.length > 1 ? t('Move {n} boards to…', { n: ids.length }) : t('Move “{name}” to…', { name: b.name || t('Untitled board') }), { from: here });
+          if (to === undefined) return;
+          moveBoards(ids, to);
+        } }),
+        h('span', { class: 'icon-btn', title: t('Delete'), html: icon('trash', 16), onclick: async (e) => { e.stopPropagation(); if (await app.confirm(t('Delete board?'), t('"{name}" will be permanently removed.', { name: b.name }), t('Delete'))) { await app.deleteBoard(b.id); boards({ stay: true }); } } })
       );
       row.addEventListener('click', async () => {
+        if (row._dragged) return;
         const data = await window.board.boards.load(b.id);
         if (data) { await app.loadBoard(data); close(); }
       });
+      pickUp(row, { kind: 'board', id: b.id, name: b.name || t('Untitled board') });
       host.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px' },
         h('label', { style: 'display:grid;place-items:center;min-width:40px;min-height:48px' }, input), row));
+    }
+
+    /*
+     * Pick a row up and drop it on a folder.
+     *
+     * A mouse drags at once - press, move, drop - like a file in Explorer. A
+     * finger or a pen has to HOLD first, for about half a second, because
+     * moving straight away is how a list is scrolled; only a steady hold lifts
+     * the row, with a buzz where the device can. While something is lifted the
+     * list does not scroll under the finger, except at its top and bottom
+     * edges, where it rolls along so a folder off screen can still be reached.
+     * Letting go anywhere but a folder puts it back where it was.
+     */
+    function pickUp(row, item) {
+      row.style.touchAction = 'pan-y';
+      row.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || e.target.closest('.icon-btn')) return;
+        const touchy = e.pointerType !== 'mouse';
+        const start = { x: e.clientX, y: e.clientY };
+        let lifted = null, timer = null, last = start, roll = 0;
+        const scroller = body;
+        const targetAt = (x, y) => {
+          const el = document.elementFromPoint(x, y)?.closest?.('[data-drop-folder]');
+          if (!el || !host.contains(el) && !el.closest('.crumbs')) return null;
+          const to = el.getAttribute('data-drop-folder') || null;
+          if (item.kind === 'folder' && (to === item.id || (to && F.isInside(app.settings, to, item.id)))) return null;
+          if (item.kind === 'board' && to === F.folderOf(app.settings, item.id)) return null;
+          if (item.kind === 'folder' && to === (F.folderPath(app.settings, item.id).slice(-2, -1)[0]?.id || null)) return null;
+          return { el, to };
+        };
+        let over = null;
+        const mark = (hit) => {
+          if (over && (!hit || over.el !== hit.el)) over.el.classList.remove('drop-here');
+          over = hit;
+          if (over) over.el.classList.add('drop-here');
+        };
+        const lift = () => {
+          const many = item.kind === 'board' ? movingWith(item.id).length : 1;
+          lifted = h('div', { class: 'drag-ghost' }, h('span', { html: icon(item.kind === 'folder' ? 'folder' : 'board', 16), style: 'display:flex' }),
+            many > 1 ? t('{n} boards', { n: many }) : item.name);
+          document.body.appendChild(lifted);
+          row.classList.add('lifted');
+          host.classList.add('dragging');
+          try { navigator.vibrate?.(15); } catch { /* no buzz on this device */ }
+          place(last.x, last.y);
+        };
+        const place = (x, y) => {
+          if (!lifted) return;
+          lifted.style.left = x + 12 + 'px';
+          lifted.style.top = y + 12 + 'px';
+          mark(targetAt(x, y));
+          const r = scroller.getBoundingClientRect();
+          roll = y < r.top + 40 ? -8 : y > r.bottom - 40 ? 8 : 0;
+        };
+        const tick = () => { if (!lifted) return; if (roll) { scroller.scrollTop += roll; mark(targetAt(last.x, last.y)); } requestAnimationFrame(tick); };
+        const stopScroll = (ev) => { if (lifted) ev.preventDefault(); };
+        const move = (ev) => {
+          if (ev.pointerId !== e.pointerId) return;
+          last = { x: ev.clientX, y: ev.clientY };
+          const far = Math.hypot(last.x - start.x, last.y - start.y);
+          if (!lifted) {
+            if (touchy) { if (far > 10) finish(); return; }     // a swipe: it was a scroll
+            if (far > 6) { lift(); requestAnimationFrame(tick); }
+            return;
+          }
+          place(last.x, last.y);
+        };
+        const finish = (ev) => {
+          clearTimeout(timer);
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', finish);
+          document.removeEventListener('touchmove', stopScroll);
+          if (!lifted) return;
+          const hit = ev && ev.type === 'pointerup' ? targetAt(ev.clientX, ev.clientY) : null;
+          mark(null);
+          lifted.remove(); lifted = null;
+          row.classList.remove('lifted');
+          host.classList.remove('dragging');
+          row._dragged = true;
+          setTimeout(() => { row._dragged = false; }, 0);
+          if (!hit) return;
+          if (item.kind === 'board') { moveBoards(movingWith(item.id), hit.to); return; }
+          if (!F.moveFolder(app.settings, item.id, hit.to)) return;
+          keep();
+          app.toast(t('Moved to {name}', { name: hit.to ? F.folderPath(app.settings, hit.to).pop().name : t('My boards') }), 'check');
+          boards({ stay: true });
+        };
+        const up = (ev) => { if (ev.pointerId === e.pointerId) finish(ev); };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', finish);
+        document.addEventListener('touchmove', stopScroll, { passive: false });
+        if (touchy) timer = setTimeout(() => { lift(); requestAnimationFrame(tick); }, 450);
+      });
+      // The long-press menu a phone would otherwise open over a held row.
+      row.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    /*
+     * Where should it go? Every folder, indented under the one it is in, with
+     * the top level first. The place it already is, and - when a folder is
+     * moving - that folder and everything inside it, cannot be chosen.
+     * Resolves to a folder id, null for the top level, or undefined on cancel.
+     */
+    function chooseFolder(title, { moving = null, from = null } = {}) {
+      return new Promise((resolve) => {
+        const overlay = document.getElementById('overlay');
+        const card = document.getElementById('overlayCard');
+        card.innerHTML = '';
+        let settled = false;
+        const done = (v) => { if (settled) return; settled = true; app._overlayDismiss = null; overlay.classList.remove('show'); resolve(v); };
+        const tree = h('div', { class: 'folder-tree' });
+        const add = (id, name, depth) => {
+          const blocked = (moving && id && (id === moving || F.isInside(app.settings, id, moving))) || id === (moving ? (F.folderPath(app.settings, moving).slice(-2, -1)[0]?.id || null) : from);
+          const b = h('button', { class: 'board-row', 'data-choose': id || '', disabled: blocked || null, style: `padding-left:${10 + depth * 18}px` },
+            h('span', { html: icon(id ? 'folder' : 'board', 18), style: 'display:flex;color:var(--accent-2)' }),
+            h('span', { class: 'meta' }, h('b', {}, name), blocked && !(moving && id && (id === moving || F.isInside(app.settings, id, moving))) ? h('small', {}, t('It is here now')) : null));
+          if (!blocked) b.addEventListener('click', () => done(id || null));
+          tree.appendChild(b);
+          if (id && moving && (id === moving)) return;          // nothing inside the one being moved
+          for (const c of F.childFolders(app.settings, id)) add(c.id, c.name, depth + 1);
+        };
+        add(null, t('My boards'), 0);
+        card.appendChild(h('h3', {}, title));
+        card.appendChild(tree);
+        card.appendChild(h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => done(undefined) }, t('Cancel'))));
+        app.showOverlay(() => done(undefined));
+      });
     }
   }
 

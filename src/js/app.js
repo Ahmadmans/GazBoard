@@ -14,6 +14,7 @@ import { pageRects, stripBounds, pageIndexForBox, nearestPageIndex, offsetIntoRe
 import { isNewer } from './core/version.js';
 import { emojiAspect, forgetEmojiMetrics, setDarkBoard } from './core/render.js';
 import { objectRuns, runsToHtml, htmlToRuns, normalizeRuns, AUTO_INK } from './core/richtext.js';
+import { folderOf, folderPath } from './core/folders.js';
 import { TextEditor } from './ui/textedit.js';
 import { initToolbar, syncToolbar } from './ui/toolbar.js';
 import { initPresentBar, syncPresentBar } from './ui/present.js';
@@ -63,6 +64,8 @@ export const DEFAULT_SETTINGS = {
   inkToShape: false, pressure: true, wheelZoom: false, returnToSelect: true, autosave: true,
   showGroupOutlines: true,
   edgePan: true, importQuality: 2, lowLatencyInk: false, inkTrail: false, laserColor: '#ff2d2d',
+  // My boards' folders: a catalogue on this device, never inside a board (core/folders.js)
+  folders: [], boardFolders: {},
   /*
    * The letters under the tool icons.
    *
@@ -251,6 +254,10 @@ class App {
         if (s.noteFont === 'ui') s.noteFont = 'hand';
         s.fontDefaults2 = true;
       }
+      // Their own copies: the defaults' empty folder list must never be the
+      // one that gets filed into.
+      s.folders = Array.isArray(s.folders) ? s.folders.map((f) => ({ ...f })) : [];
+      s.boardFolders = s.boardFolders && typeof s.boardFolders === 'object' ? { ...s.boardFolders } : {};
       return s;
     } catch { return { ...DEFAULT_SETTINGS }; }
   }
@@ -1986,8 +1993,41 @@ class App {
     this.clipboard = copies.map((o) => structuredClone(o));
   }
 
+  /**
+   * The folder a board lives in, shown in front of its name in the top bar:
+   * CSE221 / Lectures / Sorting. Only the name itself is editable - the path
+   * is where the board is filed, and pressing it opens My boards right there.
+   * A board at the top level shows its name alone, exactly as before.
+   */
+  syncBoardPath() {
+    const title = document.getElementById('boardTitle');
+    if (!title) return;
+    let el = document.getElementById('boardPath');
+    const path = folderPath(this.settings, folderOf(this.settings, this.store.doc.id));
+    const text = path.map((f) => f.name).join(' / ');
+    if (!text) { if (el) el.hidden = true; return; }
+    if (!el) {
+      el = document.createElement('button');
+      el.id = 'boardPath';
+      el.className = 'board-path';
+      el.addEventListener('click', () => {
+        this.boardFolder = folderOf(this.settings, this.store.doc.id);
+        if (this.panels.open) this.panels.close();
+        this.panels.boards();
+      });
+      title.parentNode.insertBefore(el, title);
+    }
+    el.hidden = false;
+    if (el.dataset.path !== text) {
+      el.dataset.path = text;
+      el.textContent = text + ' /';
+      el.title = t('In {path} — open this folder', { path: text });
+    }
+  }
+
   /* ---------------- UI sync ---------------- */
   syncUI() {
+    this.syncBoardPath();
     syncToolbar(this);
     syncPresentBar(this);
     updateSelectionBar(this);
@@ -2168,7 +2208,11 @@ class App {
       lastUpdateCheck: this.settings.lastUpdateCheck,
       skippedVersion: this.settings.skippedVersion,
       updateAskedAt: this.settings.updateAskedAt,
-      hintsSeen: this.settings.hintsSeen
+      hintsSeen: this.settings.hintsSeen,
+      // Folders are where boards are filed, not a preference: a reset must
+      // never empty the filing cabinet.
+      folders: this.settings.folders,
+      boardFolders: this.settings.boardFolders
     };
     this.settings = { ...DEFAULT_SETTINGS, ...keep };
     this.saveSettings();

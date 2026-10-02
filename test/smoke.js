@@ -12661,6 +12661,265 @@ module.exports.run = async (win, app) => {
       r.svgBold && r.svgItalic && r.svgWords, `bold red "equals" ${r.svgBold}; italic "kg" ${r.svgItalic}; the other words there ${r.svgWords}`);
   }
 
+  /* ---- folders in My boards: the filing logic ---- */
+  {
+    const r = await js(`const F = await import('app://board/js/core/folders.js');
+      const s = { folders: [], boardFolders: {} };
+      const cse = F.createFolder(s, '  CSE221  '), lec = F.createFolder(s, 'Lectures', cse), quiz = F.createFolder(s, 'Quizzes', cse);
+      F.moveBoard(s, 'b1', lec); F.moveBoard(s, 'b2', cse); F.moveBoard(s, 'b3', null);
+      const list = [{ id: 'b1' }, { id: 'b2' }, { id: 'b3' }];
+      const out = {
+        path: F.folderPath(s, lec).map((f) => f.name).join(' > '),
+        top: F.childFolders(s, null).map((f) => f.name).join(','),
+        inside: F.childFolders(s, cse).map((f) => f.name).join(','),
+        here: F.boardsIn(s, list, cse).map((b) => b.id).join(','),
+        counts: JSON.stringify(F.folderCounts(s, list, cse)),
+        selfRefused: F.moveFolder(s, cse, lec) === false && F.moveFolder(s, cse, cse) === false
+      };
+      F.deleteFolder(s, cse);
+      out.afterDelete = JSON.stringify({ top: F.childFolders(s, null).map((f) => f.name).sort(), b1: F.folderOf(s, 'b1') === lec, b2: F.folderOf(s, 'b2') });
+      s.boardFolders.ghost = 'no-such-folder';
+      out.ghost = F.folderOf(s, 'ghost');
+      out.pruned = F.pruneBoards(s, list) && !('ghost' in s.boardFolders);
+      return out;`);
+    check('folders nest, show their path, list what is in them and count everything below',
+      r.path === 'CSE221 > Lectures' && r.top === 'CSE221' && r.inside === 'Lectures,Quizzes' && r.here === 'b2' && r.counts === '{"boards":2,"folders":2}',
+      `path "${r.path}", top level [${r.top}], inside CSE221 [${r.inside}], boards directly in CSE221 [${r.here}], counts ${r.counts}`);
+    check('a folder can never be moved inside itself',
+      r.selfRefused, `refused: ${r.selfRefused}`);
+    check('deleting a folder never deletes a board: everything in it moves up a level',
+      r.afterDelete === '{"top":["Lectures","Quizzes"],"b1":true,"b2":null}' && r.ghost === null && r.pruned,
+      `after deleting CSE221: ${r.afterDelete}; a board filed in a folder that is gone shows at the top: ${r.ghost === null}; forgotten boards pruned: ${r.pruned}`);
+  }
+
+  /* ---- folders in My boards: the panel, Move to…, and dragging with a mouse ---- */
+  {
+    const wc = win.webContents;
+    const seed = await js(`const a = window.app; a.toast = () => {}; a.newBoard(true);
+      for (const [id, name] of [['fold-a', 'Algebra notes'], ['fold-b', 'Biology notes']]) {
+        await window.board.boards.save({ id, json: JSON.stringify({ id, name, objects: [], pages: [], background: { color: '#ffffff' } }), setLast: false });
+      }
+      a.settings.folders = []; a.settings.boardFolders = {}; a.boardFolder = null;
+      a.askText = async () => 'CSE221';
+      if (a.panels.open) a.panels.close();
+      await a.panels.boards(); await new Promise((res) => setTimeout(res, 300));
+      document.querySelector('[data-new-folder]').click();
+      await new Promise((res) => setTimeout(res, 300));
+      const folder = document.querySelector('#boardList [data-folder]');
+      return { folderId: folder && folder.dataset.folder, folderName: folder && folder.querySelector('b').textContent };`);
+    const centre = (sel) => js(`const el = document.querySelector('${sel}'); if (!el) return null; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };`);
+    // Both ends measured in ONE layout: scrolling to one and then the other
+    // would leave the first position stale on a machine with many boards.
+    const ends = await js(`const body = document.getElementById('panelBody'); body.scrollTop = 0;
+      const f = document.querySelector('#boardList [data-folder]'), b = document.querySelector('#boardList [data-board="fold-a"]');
+      if (!f || !b) return null;
+      const br = b.getBoundingClientRect(), pr = body.getBoundingClientRect();
+      if (br.bottom > pr.bottom - 50) body.scrollTop += br.bottom - (pr.bottom - 50);
+      await new Promise((res) => requestAnimationFrame(res));
+      const c = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
+      return { from: c(b), to: c(f), fromVisible: c(b).y < pr.bottom, toVisible: c(f).y > pr.top };`);
+    const from = ends && ends.from, to = ends && ends.to, from2 = from;
+    if (from2 && to) {
+      wc.sendInputEvent({ type: 'mouseDown', x: from2.x, y: from2.y, button: 'left', clickCount: 1 }); await sleep(40);
+      for (let i = 1; i <= 12; i++) { wc.sendInputEvent({ type: 'mouseMove', x: Math.round(from2.x + (to.x - from2.x) * i / 12), y: Math.round(from2.y + (to.y - from2.y) * i / 12), button: 'left', modifiers: ['leftbuttondown'] }); await sleep(25); }
+      wc.sendInputEvent({ type: 'mouseUp', x: to.x, y: to.y, button: 'left', clickCount: 1 }); await sleep(350);
+    }
+    const dragged = await js(`const a = window.app; const F = await import('app://board/js/core/folders.js');
+      return { filed: F.folderOf(a.settings, 'fold-a'), stillOpen: a.panels.open, atTop: !!document.querySelector('#boardList [data-board="fold-a"]'),
+        saved: (JSON.parse(localStorage.getItem('gazboard.settings') || '{}').boardFolders || {})['fold-a'] || null };`);
+    // step into the folder, then make a new board there
+    const inside = await js(`const a = window.app; const F = await import('app://board/js/core/folders.js');
+      document.querySelector('#boardList [data-folder]').click(); await new Promise((res) => setTimeout(res, 300));
+      const out = { crumbs: [...document.querySelectorAll('#boardList .crumb')].map((c) => c.textContent).join(' › '),
+        rows: [...document.querySelectorAll('#boardList [data-board]')].map((b) => b.dataset.board).join(',') };
+      [...document.querySelectorAll('#boardList button')].find((b) => /New board/.test(b.textContent)).click();
+      await new Promise((res) => setTimeout(res, 200));
+      out.newFiled = F.folderOf(a.settings, a.store.doc.id) === a.boardFolder && !!a.boardFolder;
+      out.newId = a.store.doc.id;
+      return out;`);
+    // Move to… from the top level
+    const moved = await js(`const a = window.app; const F = await import('app://board/js/core/folders.js');
+      a.boardFolder = null; await a.panels.boards(); await new Promise((res) => setTimeout(res, 300));
+      if (!a.panels.open) { await a.panels.boards(); await new Promise((res) => setTimeout(res, 300)); }
+      const btn = document.querySelector('#boardList [data-move="fold-b"]'); if (!btn) return { button: false };
+      btn.click(); await new Promise((res) => setTimeout(res, 150));
+      const choices = [...document.querySelectorAll('#overlayCard [data-choose]')].map((b) => (b.dataset.choose || 'top') + (b.disabled ? '(here)' : ''));
+      const pick = [...document.querySelectorAll('#overlayCard [data-choose]')].find((b) => b.dataset.choose);
+      pick && pick.click(); await new Promise((res) => setTimeout(res, 250));
+      return { button: true, choices: choices.join(','), filed: F.folderOf(a.settings, 'fold-b') };`);
+    // deleting the folder moves its boards back up; a settings reset keeps folders
+    const cleanup = await js(`const a = window.app; const F = await import('app://board/js/core/folders.js');
+      const keepFolders = JSON.stringify(a.settings.folders);
+      a.resetSettings(); const survivedReset = JSON.stringify(a.settings.folders) === keepFolders && F.folderOf(a.settings, 'fold-a') !== null;
+      a.confirm = async () => true;
+      a.boardFolder = null; if (!a.panels.open) await a.panels.boards(); await new Promise((res) => setTimeout(res, 300));
+      const del = document.querySelector('#boardList [data-folder] .icon-btn[title="Delete folder"]');
+      del && del.click(); await new Promise((res) => setTimeout(res, 300));
+      const out = { survivedReset, folders: a.settings.folders.length, a: F.folderOf(a.settings, 'fold-a'), b: F.folderOf(a.settings, 'fold-b'),
+        stillThere: !!document.querySelector('#boardList [data-board="fold-a"]') && !!document.querySelector('#boardList [data-board="fold-b"]') };
+      return out;`);
+    check('+ New folder makes a folder in My boards',
+      !!seed.folderId && seed.folderName === 'CSE221', `folder row: ${seed.folderName || '(none)'}`);
+    check('dragging a board onto a folder with the mouse files it there, and it stays filed after a restart',
+      dragged.filed === seed.folderId && !dragged.atTop && dragged.stillOpen && dragged.saved === seed.folderId,
+      `filed in ${dragged.filed} (wanted ${seed.folderId}); still listed at the top ${dragged.atTop}; panel still open ${dragged.stillOpen}; written to settings ${dragged.saved}; dragged from ${JSON.stringify(from)} to ${JSON.stringify(to)} (both on screen: ${ends && ends.fromVisible && ends.toVisible})`);
+    check('opening a folder shows the path back up, the boards in it, and new boards are made inside it',
+      inside.crumbs === 'My boards › CSE221' && inside.rows === 'fold-a' && inside.newFiled,
+      `path "${inside.crumbs}"; boards here [${inside.rows}]; new board ${inside.newId} filed here ${inside.newFiled}`);
+    check('Move to… lists every folder, marks where the board is now, and files it where you pick',
+      moved.button && moved.filed === seed.folderId && /^top\(here\),f/.test(moved.choices),
+      `button found ${moved.button}; choices ${moved.choices}; fold-b now in ${moved.filed}`);
+    check('Reset settings keeps the folders, and deleting a folder moves its boards back up instead of deleting them',
+      cleanup.survivedReset && cleanup.folders === 0 && cleanup.a === null && cleanup.b === null && cleanup.stillThere,
+      `folders survived the reset ${cleanup.survivedReset}; folders left ${cleanup.folders}; fold-a in ${cleanup.a}, fold-b in ${cleanup.b} (both wanted top level); both still listed ${cleanup.stillThere}`);
+    seed.newId = inside.newId;
+    // a finger: a quick swipe scrolls and moves nothing; a steady hold picks the board up
+    let touch = { skipped: 'no debugger' };
+    try {
+      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+      const cdp = (m, p) => wc.debugger.sendCommand(m, p || {});
+      await js(`const a = window.app; const F = await import('app://board/js/core/folders.js');
+        a.settings.folders = []; a.settings.boardFolders = {}; F.createFolder(a.settings, 'Physics'); a.boardFolder = null;
+        if (!a.panels.open) await a.panels.boards(); else await a.panels.boards({ stay: true }); await new Promise((res) => setTimeout(res, 300)); return true;`);
+      const tf = await centre('#boardList [data-board="fold-b"]');
+      const tt = null;
+      const tf2 = tf;
+      const pt = (p) => [{ x: p.x, y: p.y, id: 1, radiusX: 4, radiusY: 4, force: 0.5 }];
+      // quick swipe
+      await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(tf2) });
+      for (let i = 1; i <= 6; i++) { await cdp('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt({ x: tf2.x, y: tf2.y + i * 6 }) }); await sleep(16); }
+      await cdp('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(300);
+      const afterSwipe = await js(`const F = await import('app://board/js/core/folders.js'); return F.folderOf(window.app.settings, 'fold-b');`);
+      const both = await js(`const body = document.getElementById('panelBody'); body.scrollTop = 0;
+        const f = document.querySelector('#boardList [data-folder]'), b = document.querySelector('#boardList [data-board="fold-b"]');
+        const br = b.getBoundingClientRect(), pr = body.getBoundingClientRect();
+        if (br.bottom > pr.bottom - 50) body.scrollTop += br.bottom - (pr.bottom - 50);
+        await new Promise((res) => requestAnimationFrame(res));
+        const c = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
+        return { a: c(b), b: c(f) };`);
+      const a2 = both.a, b2 = both.b;
+      // hold, then drag
+      await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(a2) });
+      await sleep(650);
+      const liftedNow = await js(`return !!document.querySelector('.drag-ghost');`);
+      for (let i = 1; i <= 10; i++) { await cdp('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt({ x: Math.round(a2.x + (b2.x - a2.x) * i / 10), y: Math.round(a2.y + (b2.y - a2.y) * i / 10) }) }); await sleep(25); }
+      await cdp('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(350);
+      touch = await js(`const F = await import('app://board/js/core/folders.js'); const a = window.app;
+        return { afterSwipe: ${JSON.stringify(afterSwipe)}, lifted: ${liftedNow}, filed: F.folderOf(a.settings, 'fold-b'), want: a.settings.folders[0].id, ghostGone: !document.querySelector('.drag-ghost') };`);
+      touch.from = tf; touch.to = tt;
+    } catch (e) { touch = { skipped: e.message }; }
+    check('on a touch screen a quick swipe moves nothing, and holding a board then dragging it files it in the folder',
+      !touch.skipped && touch.afterSwipe === null && touch.lifted && touch.filed === touch.want && touch.ghostGone,
+      touch.skipped ? `could not drive touch: ${touch.skipped}` :
+      `after a swipe: ${touch.afterSwipe} (wanted null); lifted after holding ${touch.lifted}; filed in ${touch.filed} (wanted ${touch.want}); drag picture gone ${touch.ghostGone}`);
+    await js(`const a = window.app; a.settings.folders = []; a.settings.boardFolders = {}; a.boardFolder = null; a.saveSettings();
+      if (a.panels.open) a.panels.close();
+      for (const id of ['fold-a', 'fold-b', ${JSON.stringify(seed.newId || '')}]) { try { if (id) await window.board.boards.remove(id); } catch {} }
+      a.newBoard(true); return true;`);
+  }
+
+  /* ---- folders: several ticked boards move together ---- */
+  {
+    const wc = win.webContents;
+    const setup = await js(`const a = window.app; a.toast = () => {}; a.newBoard(true);
+      const F = await import('app://board/js/core/folders.js');
+      for (const id of ['multi-1', 'multi-2', 'multi-3', 'multi-4']) await window.board.boards.save({ id, json: JSON.stringify({ id, name: id, objects: [], pages: [], background: { color: '#ffffff' } }), setLast: false });
+      a.settings.folders = []; a.settings.boardFolders = {}; a.boardFolder = null;
+      const target = F.createFolder(a.settings, 'Physics'), other = F.createFolder(a.settings, 'Chemistry');
+      if (a.panels.open) a.panels.close();
+      await a.panels.boards(); await new Promise((res) => setTimeout(res, 300));
+      const tick = (id) => { const box = document.querySelector('#boardList [data-board="' + id + '"]').parentElement.querySelector('input[type=checkbox]'); box.click(); };
+      tick('multi-1'); tick('multi-2'); tick('multi-3');
+      const bar = document.querySelector('[data-move-selected]');
+      return { target, other, label: bar && bar.textContent, enabled: bar && !bar.disabled };`);
+    // drag one of the ticked boards with the mouse: all three go
+    const ends = await js(`const body = document.getElementById('panelBody'); body.scrollTop = 0;
+      const f = document.querySelector('#boardList [data-folder="${setup.target}"]'), b = document.querySelector('#boardList [data-board="multi-2"]');
+      const br = b.getBoundingClientRect(), pr = body.getBoundingClientRect();
+      if (br.bottom > pr.bottom - 50) body.scrollTop += br.bottom - (pr.bottom - 50);
+      await new Promise((res) => requestAnimationFrame(res));
+      const c = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
+      return { from: c(b), to: c(f) };`);
+    wc.sendInputEvent({ type: 'mouseDown', x: ends.from.x, y: ends.from.y, button: 'left', clickCount: 1 }); await sleep(40);
+    let ghost = null;
+    for (let i = 1; i <= 12; i++) {
+      wc.sendInputEvent({ type: 'mouseMove', x: Math.round(ends.from.x + (ends.to.x - ends.from.x) * i / 12), y: Math.round(ends.from.y + (ends.to.y - ends.from.y) * i / 12), button: 'left', modifiers: ['leftbuttondown'] }); await sleep(25);
+      if (i === 8) ghost = await js(`return document.querySelector('.drag-ghost')?.textContent || null;`);
+    }
+    wc.sendInputEvent({ type: 'mouseUp', x: ends.to.x, y: ends.to.y, button: 'left', clickCount: 1 }); await sleep(350);
+    const afterDrag = await js(`const F = await import('app://board/js/core/folders.js'); const s = window.app.settings;
+      return ['multi-1', 'multi-2', 'multi-3', 'multi-4'].map((id) => F.folderOf(s, id) === '${setup.target}' ? 'P' : '-').join('');`);
+    // then: tick two inside Physics and use Move selected to send them to Chemistry
+    const viaButton = await js(`const a = window.app; const F = await import('app://board/js/core/folders.js');
+      a.boardFolder = '${setup.target}'; await a.panels.boards({ stay: true }); await new Promise((res) => setTimeout(res, 300));
+      for (const id of ['multi-1', 'multi-3']) document.querySelector('#boardList [data-board="' + id + '"]').parentElement.querySelector('input[type=checkbox]').click();
+      document.querySelector('[data-move-selected]').click(); await new Promise((res) => setTimeout(res, 150));
+      const title = document.querySelector('#overlayCard h3')?.textContent;
+      document.querySelector('#overlayCard [data-choose="${setup.other}"]').click(); await new Promise((res) => setTimeout(res, 250));
+      const s = a.settings;
+      const out = { title, where: ['multi-1', 'multi-2', 'multi-3', 'multi-4'].map((id) => { const f = F.folderOf(s, id); return f === '${setup.target}' ? 'P' : f === '${setup.other}' ? 'C' : '-'; }).join('') };
+      // an unticked board's own Move to… moves only that board
+      a.boardFolder = null; await a.panels.boards({ stay: true }); await new Promise((res) => setTimeout(res, 300));
+      document.querySelector('#boardList [data-board="multi-4"]').parentElement.querySelector('input[type=checkbox]').click();
+      return out;`);
+    await js(`const a = window.app; a.settings.folders = []; a.settings.boardFolders = {}; a.boardFolder = null; a.saveSettings();
+      if (a.panels.open) a.panels.close();
+      for (const id of ['multi-1', 'multi-2', 'multi-3', 'multi-4']) { try { await window.board.boards.remove(id); } catch {} }
+      a.newBoard(true); return true;`);
+    check('ticking boards offers Move selected, with the count',
+      setup.enabled && setup.label === 'Move selected (3)…', `button "${setup.label}", enabled ${setup.enabled}`);
+    check('dragging one of several ticked boards moves all the ticked ones, and leaves the unticked one where it was',
+      afterDrag === 'PPP-' && ghost === '3 boards', `filed in Physics: ${afterDrag} (wanted PPP-); the picture under the pointer said "${ghost}"`);
+    check('Move selected sends exactly the ticked boards where you pick',
+      viaButton.where === 'CPC-' && viaButton.title === 'Move 2 boards to…', `dialog "${viaButton.title}"; now ${viaButton.where} (wanted CPC-: 1 and 3 in Chemistry, 2 still in Physics, 4 at the top)`);
+  }
+
+  /* ---- folders: moving several back out, and the path in the top bar ---- */
+  {
+    const wc = win.webContents;
+    const setup = await js(`const a = window.app; a.toast = () => {}; a.newBoard(true);
+      const F = await import('app://board/js/core/folders.js');
+      for (const id of ['out-1', 'out-2', 'out-3']) await window.board.boards.save({ id, json: JSON.stringify({ id, name: id, objects: [], pages: [], background: { color: '#ffffff' } }), setLast: false });
+      a.settings.folders = []; a.settings.boardFolders = {};
+      const cse = F.createFolder(a.settings, 'CSE221'), lec = F.createFolder(a.settings, 'Lectures', cse);
+      for (const id of ['out-1', 'out-2', 'out-3']) F.moveBoard(a.settings, id, lec);
+      a.boardFolder = lec;
+      if (a.panels.open) a.panels.close();
+      await a.panels.boards(); await new Promise((res) => setTimeout(res, 300));
+      for (const id of ['out-1', 'out-2']) document.querySelector('#boardList [data-board="' + id + '"]').parentElement.querySelector('input[type=checkbox]').click();
+      const body = document.getElementById('panelBody'); body.scrollTop = 0;
+      const crumb = [...document.querySelectorAll('#boardList .crumb')].find((c) => c.textContent === 'My boards');
+      const b = document.querySelector('#boardList [data-board="out-2"]');
+      const c = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
+      return { lec, cse, from: c(b), to: c(crumb) };`);
+    wc.sendInputEvent({ type: 'mouseDown', x: setup.from.x, y: setup.from.y, button: 'left', clickCount: 1 }); await sleep(40);
+    for (let i = 1; i <= 12; i++) { wc.sendInputEvent({ type: 'mouseMove', x: Math.round(setup.from.x + (setup.to.x - setup.from.x) * i / 12), y: Math.round(setup.from.y + (setup.to.y - setup.from.y) * i / 12), button: 'left', modifiers: ['leftbuttondown'] }); await sleep(25); }
+    wc.sendInputEvent({ type: 'mouseUp', x: setup.to.x, y: setup.to.y, button: 'left', clickCount: 1 }); await sleep(350);
+    const r = await js(`const a = window.app; const F = await import('app://board/js/core/folders.js'); const s = a.settings;
+      const out = { where: ['out-1', 'out-2', 'out-3'].map((id) => F.folderOf(s, id) === '${setup.lec}' ? 'L' : F.folderOf(s, id) === null ? 'T' : '?').join('') };
+      if (a.panels.open) a.panels.close();
+      // open out-3, which is still in CSE221 / Lectures
+      const data = await window.board.boards.load('out-3'); await a.loadBoard(data, { silent: true }); a.syncUI();
+      const p = document.getElementById('boardPath');
+      out.path = p && !p.hidden ? p.textContent : '(none)';
+      out.name = document.getElementById('boardTitle').value;
+      p && p.click(); await new Promise((res) => setTimeout(res, 350));
+      out.opened = a.panels.open && [...document.querySelectorAll('#boardList .crumb')].map((c) => c.textContent).join(' › ');
+      if (a.panels.open) a.panels.close();
+      // a board at the top level shows its name alone
+      const top = await window.board.boards.load('out-1'); await a.loadBoard(top, { silent: true }); a.syncUI();
+      out.topPath = p && !p.hidden ? p.textContent : '(none)';
+      a.settings.folders = []; a.settings.boardFolders = {}; a.boardFolder = null; a.saveSettings();
+      for (const id of ['out-1', 'out-2', 'out-3']) { try { await window.board.boards.remove(id); } catch {} }
+      a.newBoard(true);
+      return out;`);
+    check('dragging ticked boards out of a folder onto the path moves all of them out, not just the first',
+      r.where === 'TTL', `after dropping on "My boards": ${r.where} (wanted TTL: 1 and 2 at the top, 3 still in Lectures)`);
+    check('a board inside a folder shows its folder path before its name in the top bar, and pressing the path opens that folder',
+      r.path === 'CSE221 / Lectures /' && r.name === 'out-3' && r.opened === 'My boards › CSE221 › Lectures' && r.topPath === '(none)',
+      `top bar: "${r.path}" + "${r.name}"; pressing it opened ${r.opened}; a top-level board shows a path: ${r.topPath}`);
+  }
+
   /* ---- the Windows Ink trail: a head start for the pen, never part of the board ---- */
   {
     const r = await js(`const a = window.app, sf = a.surface, it = a.interaction, trail = a.inkTrail; a.toast = () => {};
